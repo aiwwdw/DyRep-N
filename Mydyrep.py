@@ -21,7 +21,6 @@ class DyRep(torch.nn.Module):
         self.num_neg_samples = num_neg_samples
         self.device = device
         self.num_time_samples = num_time_samples
-        self.n_assoc_types = 1
         self.train_td_max = train_td_max
         # TODO: TB we bring bias term to the linear layer by using Linear (set bias=False to exempt or directly use parameter)
         if not self.include_link_features:
@@ -33,7 +32,7 @@ class DyRep(torch.nn.Module):
         self.psi = Parameter(0.5*torch.ones(1)) # type is just one
 
         self.W_h = Linear(in_features=hidden_dim, out_features=hidden_dim)
-        self.W_struct = Linear(in_features=hidden_dim*self.n_assoc_types, out_features=hidden_dim)
+        self.W_struct = Linear(in_features=hidden_dim*1, out_features=hidden_dim)
         self.W_rec = Linear(in_features=hidden_dim, out_features=hidden_dim)
         self.W_t = Linear(4,hidden_dim) # [days, hours, minutes, seconds]
 
@@ -64,15 +63,15 @@ class DyRep(torch.nn.Module):
         self.time_keys = []
 
     def initialize_S_from_A(self):
-        S = self.A.new_zeros((self.num_nodes, self.num_nodes, self.n_assoc_types))
-        for at in range(self.n_assoc_types):
+        S = self.A.new_zeros((self.num_nodes, self.num_nodes, 1))
+        for at in range(1):
             D = torch.sum(self.A[:,:,at], dim=1)
             for v in torch.nonzero(D, as_tuple=False):
                 u = torch.nonzero(self.A[v,:,at].squeeze(), as_tuple=False)
                 S[v,u,at] = 1. / D[v]
         self.S = S
         # Check that values in each row of S add up to 1
-        for rel in range(self.n_assoc_types):
+        for rel in range(1):
             S = self.S[:, :, rel]
             assert torch.sum(S[self.A[:, :, rel] == 0]) < 1e-5, torch.sum(S[self.A[:, :, rel] == 0])
 
@@ -114,14 +113,12 @@ class DyRep(torch.nn.Module):
 
             if self.batch_update:
                 batch_embeddings_u.append(z_prev[u_it])
-                batch_embeddings_v.append(z_prev[v_it])
-                lambda_uv_it = 0
             else:
-                lambda_uv_it = self.compute_intensity_lambda(z_prev[u_it])
-                lambda_uv.append(lambda_uv_it)
+                lambda_u_it = self.compute_intensity_lambda(z_prev[u_it]) 
+
 
             ## 2. compute new node embeddings
-            z_new = self.update_node_embedding(z_prev, u_it, v_it, td_it)
+            z_new = self.update_node_embedding(z_prev, u_it, td_it)
             assert torch.sum(torch.isnan(z_new)) == 0, (torch.sum(torch.isnan(z_new)), z_new, it)
 
             # update_node_degrees.append(update_node_degree)
@@ -131,7 +128,7 @@ class DyRep(torch.nn.Module):
                 self.update_A_S(u_it, v_it, et_it, lambda_uv_it)
                 ### update the global node degree
                 for j in [u_it, v_it]:
-                    for at in range(self.n_assoc_types):
+                    for at in range(1):
                         self.node_degree_global[at][j] = torch.sum(self.A[j, :, at]>0).item()
 
             ## 4. compute lambda for sampled events that do not happen -> to compute survival probability in loss
@@ -243,7 +240,7 @@ class DyRep(torch.nn.Module):
                 u_it, v_it = u_all[i], v_all[i]
                 self.update_A_S(u_it, v_it, k, lambda_uv[i].item())
                 for j in [u_it, v_it]:
-                    for at in range(self.n_assoc_types):
+                    for at in range(1):
                         self.node_degree_global[at][j] = torch.sum(self.A[j, :, at]>0).item()
         else:
             lambda_uv = torch.cat(lambda_uv, dim=0)
@@ -270,14 +267,14 @@ class DyRep(torch.nn.Module):
         idx = k <= 0
         if torch.sum(idx) > 0:
             if edge_type is not None:
-                z_cat1 = torch.cat((z_cat[idx], edge_type[idx, :self.n_assoc_types]), dim=1)
+                z_cat1 = torch.cat((z_cat[idx], edge_type[idx, :1]), dim=1)
             else:
                 z_cat1 = z_cat[idx]
             g[idx] = self.omega[0](z_cat1)
         idx = k > 0
         if torch.sum(idx) > 0:
             if edge_type is not None:
-                z_cat1 = torch.cat((z_cat[idx], edge_type[idx, self.n_assoc_types:]), dim=1)
+                z_cat1 = torch.cat((z_cat[idx], edge_type[idx, 1:]), dim=1)
             else:
                 z_cat1 = z_cat[idx]
             g[idx] = self.omega[1](z_cat1)
@@ -290,22 +287,19 @@ class DyRep(torch.nn.Module):
         z_cat = torch.cat((z_u), dim=1)
         g = z_cat.new_zeros(len(z_cat))
         # Total two types of events
-        for k in range(2):
-            idx = (et==k)
-            if torch.sum(idx)>0:
-                g[idx] = self.omega[k](z_cat).flatten()[idx]
+        g = self.omega(z_cat).flatten()
 
-        psi = self.psi[et]
+        psi = self.psi
         g_psi = torch.clamp(g/(psi + 1e-7), -75, 75) # avoid overflow
         Lambda = psi * torch.log(1 + torch.exp(g_psi))
         return Lambda
 
-    def update_node_embedding(self, prev_embedding, node_u, node_v, td):
+    def update_node_embedding(self, prev_embedding, node_u, td):
         z_new = prev_embedding.clone()
-        h_u_struct = prev_embedding.new_zeros((2, self.hidden_dim, self.n_assoc_types))# 2 -> update embedding for both u & v
+        h_u_struct = prev_embedding.new_zeros((2, self.hidden_dim, 1))# 2 -> update embedding for both u & v
         update_node_degree = {}
         for cnt, (v,u) in enumerate([(node_u,  node_v), (node_v, node_u)]):
-            for at in range(self.n_assoc_types):
+            for at in range(1):
                 u_nb = self.A[u, :, at] > 0
                 num_u_nb = torch.sum(u_nb).item()
                 if num_u_nb > 0:
@@ -313,7 +307,7 @@ class DyRep(torch.nn.Module):
                     q_ui = torch.exp(self.S[u, u_nb, at])
                     q_ui = q_ui / (torch.sum(q_ui) + 1e-7)
                     h_u_struct[cnt, :, at] = torch.max(torch.sigmoid(q_ui.view(-1,1)*h_i_bar), dim=0)[0]
-        z_new[[node_u, node_v]] = torch.sigmoid(self.W_struct(h_u_struct.view(2, self.hidden_dim*self.n_assoc_types)) + \
+        z_new[[node_u, node_v]] = torch.sigmoid(self.W_struct(h_u_struct.view(2, self.hidden_dim*1)) + \
                                   self.W_rec(prev_embedding[[node_u, node_v]]) + \
                                   self.W_t(td).view(2, self.hidden_dim))
         return z_new
@@ -327,7 +321,7 @@ class DyRep(torch.nn.Module):
                 self.A[u_it, v_it, np.abs(et_it)] = self.A[v_it, u_it, np.abs(et_it)] = 1
         A = self.A
         indices = torch.arange(self.num_nodes, device=self.device)
-        for k in range(self.n_assoc_types):
+        for k in range(1):
             if (et_it>0) and (A[u_it, v_it, k]==0):
                 continue
             else:
