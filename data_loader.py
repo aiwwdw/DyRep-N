@@ -21,19 +21,24 @@ class EventsDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
 
         tpl = self.all_events[index]
+
+        # 서경 :  u, time_cur = tpl 정도로 해도 될 것 같다
+        # rel  = 1 로 둘 것
+
+        # sources,timestamps_date,significance,magnitudo
         if self.link_feat:
             u, v, rel, time_cur, link_feature = tpl
         else:
-            u, v, rel, time_cur = tpl
+            u, time_cur,significance,magnitudo = tpl
         # self.start_time = min(self.start_time, min(time_cur))
         # Compute time delta in seconds (t_p - \bar{t}_p_j) that will be fed to W_t
-        time_delta_uv = np.zeros((2, 4))  # two nodes x 4 values
+        time_delta_uv = np.zeros((1, 4))  # two nodes x 4 values
 
         # most recent previous time for all nodes
         time_bar = self.time_bar.copy()
-        assert u != v, (tpl, rel)
+        # assert u != v, (tpl, rel)
 
-        for c, j in enumerate([u, v]):
+        for c, j in enumerate([u]):
             t = datetime.fromtimestamp(int(self.time_bar[int(j)]), tz=self.TZ)
             if t.toordinal() >= self.FIRST_DATE.toordinal():  # assume no events before FIRST_DATE
                 td = time_cur - t
@@ -47,7 +52,7 @@ class EventsDataset(torch.utils.data.Dataset):
                 raise ValueError('unexpected result', t, self.FIRST_DATE)
             self.time_bar[j] = time_cur.timestamp()  # last time stamp for nodes u and v
 
-        k = self.event_types_num[rel]
+        # k = self.event_types_num[rel]
 
         # sanity checks
         assert np.float64(time_cur.timestamp()) == time_cur.timestamp(), (
@@ -56,7 +61,7 @@ class EventsDataset(torch.utils.data.Dataset):
         time_bar = time_bar.astype(np.float64)
         time_cur = torch.from_numpy(np.array([time_cur])).double()
         assert time_bar.max() <= time_cur, (time_bar.max(), time_cur)
-        if self.link_feat:
-            return u, v, time_delta_uv, k, time_bar, time_cur, link_feature
-        else:
-            return u, v, time_delta_uv, k, time_bar, time_cur
+        # if self.link_feat:
+            # return u, v, time_delta_uv, k, time_bar, time_cur, link_feature
+        # else:
+        return u, time_delta_uv, time_bar, time_cur,significance,magnitudo
