@@ -215,7 +215,7 @@ class CSVReader:
 
         n_rows = len(self.data[self.time_column])
 
-        time_stamp_days = np.array([d.toordinal() for d in self.data[self.time_column]], dtype=np.int)
+        time_stamp_days = np.array([d.toordinal() for d in self.data[self.time_column]], dtype=int)
 
         # skip data where one of users is missing (nan) or interacting with itself or timestamp not in range
         conditions = [~np.isnan(self.data[user_columns[0]]),
@@ -229,7 +229,7 @@ class CSVReader:
             # skip data if the probability of event is 0 or nan (available for some event types)
             conditions.append(np.nan_to_num(np.array(self.data[self.prob_column[0]])) > MIN_EVENT_PROB)
 
-        valid_ids = np.ones(n_rows, dtype=np.bool)
+        valid_ids = np.ones(n_rows, dtype=bool)
         for cond in conditions:
             valid_ids = valid_ids & cond
 

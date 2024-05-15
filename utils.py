@@ -30,7 +30,7 @@ def MAR(A_pred, u, v, k, Survival_term):
         assert len(rank1) == len(rank2) == 1, (len(rank1), len(rank2))
         hits_10.append(np.mean([float(rank1[0] <= 9), float(rank2[0] <= 9)]))
         rank = np.mean([rank1[0], rank2[0]])
-        assert isinstance(rank, np.float), (rank, rank1, rank2, u_it, v_it, idx1, idx2)
+        assert isinstance(rank, float), (rank, rank1, rank2, u_it, v_it, idx1, idx2)
         ranks.append(rank)
     return ranks, hits_10
 

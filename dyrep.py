@@ -176,7 +176,7 @@ class DyRep(torch.nn.Module):
                     td = t_cur_date - t_prev
                     time_scale_hour = round((td.days*24 + td.seconds/3600),3)
                     delta = np.array([td.days, td.seconds // 3600, (td.seconds // 60) % 60, td.seconds % 60],
-                                     np.float)
+                                     float)
                     delta = np.tile(delta, (2,1))
                     assert delta.shape==(2,4)
                     delta = torch.from_numpy(delta).float().to(self.device)
@@ -194,7 +194,7 @@ class DyRep(torch.nn.Module):
 
                         td_sample = timedelta(hours=sampled_time_scale[n - 1])
                         delta_sample = np.array([td_sample.days, td_sample.seconds // 3600,
-                                                 (td_sample.seconds // 60) % 60, td_sample.seconds % 60], np.float)
+                                                 (td_sample.seconds // 60) % 60, td_sample.seconds % 60], float)
                         delta_sample = torch.from_numpy(np.tile(delta_sample, (2, 1))).float().to(self.device)
 
                         new_embedding = self.update_node_embedding(prev_embedding, u_it, v_it, delta_sample)

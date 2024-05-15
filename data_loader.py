@@ -41,7 +41,7 @@ class EventsDataset(torch.utils.data.Dataset):
                                              td.seconds // 3600,  # hours, max 24
                                              (td.seconds // 60) % 60,  # minutes, max 60
                                              td.seconds % 60],  # seconds, max 60
-                                            np.float)
+                                            float)
                 # assert time_delta_uv.min() >= 0, (index, tpl, time_delta_uv[c], node_global_time[j])
             else:
                 raise ValueError('unexpected result', t, self.FIRST_DATE)
@@ -50,10 +50,10 @@ class EventsDataset(torch.utils.data.Dataset):
         k = self.event_types_num[rel]
 
         # sanity checks
-        assert np.float64(time_cur.timestamp()) == time_cur.timestamp(), (
-        np.float64(time_cur.timestamp()), time_cur.timestamp())
-        time_cur = np.float64(time_cur.timestamp())
-        time_bar = time_bar.astype(np.float64)
+        assert float(time_cur.timestamp()) == time_cur.timestamp(), (
+        float(time_cur.timestamp()), time_cur.timestamp())
+        time_cur = float(time_cur.timestamp())
+        time_bar = time_bar.astype(float)
         time_cur = torch.from_numpy(np.array([time_cur])).double()
         assert time_bar.max() <= time_cur, (time_bar.max(), time_cur)
         if self.link_feat:

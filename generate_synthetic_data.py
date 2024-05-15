@@ -85,7 +85,7 @@ if __name__ == '__main__':
 
     syn_node_sequence = node_pairs[pair_idx]
 
-    event_types = np.zeros(args.events_num, np.int)
+    event_types = np.zeros(args.events_num, int)
 
     df_graph = pd.DataFrame({'event_types': event_types})
 
