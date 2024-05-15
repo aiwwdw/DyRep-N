@@ -21,10 +21,7 @@ class EventsDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
 
         tpl = self.all_events[index]
-
-        # 서경 :  u, time_cur = tpl 정도로 해도 될 것 같다
-        # rel  = 1 로 둘 것
-
+        
         # sources,timestamps_date,significance,magnitudo
         if self.link_feat:
             u, v, rel, time_cur, link_feature = tpl
@@ -32,27 +29,49 @@ class EventsDataset(torch.utils.data.Dataset):
             u, time_cur,significance,magnitudo = tpl
         # self.start_time = min(self.start_time, min(time_cur))
         # Compute time delta in seconds (t_p - \bar{t}_p_j) that will be fed to W_t
-        time_delta_uv = np.zeros((1, 4))  # two nodes x 4 values
+        time_delta = np.zeros((1+sum(self.A_initial[int(u)]), 4))  # two nodes x 4 values
 
         # most recent previous time for all nodes
         time_bar = self.time_bar.copy()
         # assert u != v, (tpl, rel)
-
-        for c, j in enumerate([u]):
-            t = datetime.fromtimestamp(int(self.time_bar[int(j)]), tz=self.TZ)
+        impact_nodes = [u]
+        for i, k in enumerate(self.A_initial[int(u)]):
+            if k == 1:
+                impact_nodes.append(k)
+                
+        for i,k in enumerate(impact_nodes):
+            t = datetime.fromtimestamp(int(self.time_bar[int(k)]), tz=self.TZ)
             if t.toordinal() >= self.FIRST_DATE.toordinal():  # assume no events before FIRST_DATE
                 td = time_cur - t
-                time_delta_uv[c] = np.array([td.days,  # total number of days, still can be a big number
-                                             td.seconds // 3600,  # hours, max 24
-                                             (td.seconds // 60) % 60,  # minutes, max 60
-                                             td.seconds % 60],  # seconds, max 60
+                time_delta[i] = np.array([td.days,  # total number of days, still can be a big number
+                                                td.seconds // 3600,  # hours, max 24
+                                                (td.seconds // 60) % 60,  # minutes, max 60
+                                                td.seconds % 60],  # seconds, max 60
                                             np.float)
-                # assert time_delta_uv.min() >= 0, (index, tpl, time_delta_uv[c], node_global_time[j])
             else:
                 raise ValueError('unexpected result', t, self.FIRST_DATE)
-            self.time_bar[j] = time_cur.timestamp()  # last time stamp for nodes u and v
+            
+            self.time_bar[k] = time_cur.timestamp()  # last time stamp for nodes u and v
 
-        # k = self.event_types_num[rel]
+
+
+        # for c, j in enumerate([u]):
+        #     t = datetime.fromtimestamp(int(self.time_bar[int(j)]), tz=self.TZ)
+        #     if t.toordinal() >= self.FIRST_DATE.toordinal():  # assume no events before FIRST_DATE
+        #         td = time_cur - t
+        #         time_delta_uv[c] = np.array([td.days,  # total number of days, still can be a big number
+        #                                      td.seconds // 3600,  # hours, max 24
+        #                                      (td.seconds // 60) % 60,  # minutes, max 60
+        #                                      td.seconds % 60],  # seconds, max 60
+        #                                     np.float)
+        #         # assert time_delta_uv.min() >= 0, (index, tpl, time_delta_uv[c], node_global_time[j])
+        #     else:
+        #         raise ValueError('unexpected result', t, self.FIRST_DATE)
+        #     self.time_bar[j] = time_cur.timestamp()  # last time stamp for nodes u and v
+        #     for k in self.A_initial[int(j)]:
+        #         if k == 1:
+        #             self.time_bar[int(k)] = 
+        # # k = self.event_types_num[rel]
 
         # sanity checks
         assert np.float64(time_cur.timestamp()) == time_cur.timestamp(), (
@@ -64,4 +83,4 @@ class EventsDataset(torch.utils.data.Dataset):
         # if self.link_feat:
             # return u, v, time_delta_uv, k, time_bar, time_cur, link_feature
         # else:
-        return u, time_delta_uv, time_bar, time_cur,significance,magnitudo
+        return u, time_delta, time_bar, time_cur,significance,magnitudo

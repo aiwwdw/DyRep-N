@@ -31,7 +31,7 @@ class EarthquakeDataset(EventsDataset):
 
         timestamps = graph_df.time.values
         # milisecond 맞는지 확인할것
-        timestamps_date = np.array(list(map(lambda x: datetime.fromtimestamp(int(x), tz=None), timestamps)))
+        timestamps_date = np.array(list(map(lambda x: datetime.fromtimestamp(int(x / 1000), tz=None), timestamps)))
 
         train_mask = timestamps<=test_time
         test_mask = timestamps>test_time
