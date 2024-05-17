@@ -25,7 +25,7 @@ from synthetic_data_loader import SyntheticDataset
 from utils import *
 from dyrep import DyRep
 from dyrepHawkes import DyRepHawkes
-from dyrepHawkes_samestep_re import DyRepHawkesRe
+from dyrepHawkes_re import DyRepHawkesRe
 from tqdm import tqdm
 from collections import defaultdict
 
