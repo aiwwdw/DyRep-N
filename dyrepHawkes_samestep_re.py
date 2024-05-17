@@ -216,7 +216,6 @@ class DyRepHawkesRe(torch.nn.Module):
         if not self.training:
             embeddings_u_tpre = torch.stack(embeddings_u_tpre, dim=0).repeat(num_samples, 1)
             embeddings_v_tpre = torch.stack(embeddings_v_tpre, dim=0).repeat(num_samples, 1)
-            # intensity = self.compute_hawkes_lambda(embeddings_u, embeddings_v,  event_types, all_td).view(-1, len(u))
             intensity = 0.5 * ( self.compute_hawkes_lambda(embeddings_u_tpre, embeddings_v_tpre,  event_types.repeat(num_samples), all_td)
                                 .view(-1, len(u)) +
                                 self.compute_hawkes_lambda(embeddings_v_tpre, embeddings_u_tpre,  event_types.repeat(num_samples), all_td)
