@@ -82,7 +82,6 @@ class DyRepHawkesRe(torch.nn.Module):
             S = self.S[:, :, rel]
             assert torch.sum(S[self.A[:, :, rel] == 0]) < 1e-5, torch.sum(S[self.A[:, :, rel] == 0])
 
-
     def forward(self, data):
         
         u, v, time_diff, event_types, t_bar, t = data[:6]
@@ -350,7 +349,6 @@ class DyRepHawkesRe(torch.nn.Module):
         return Lambda
 
     def compute_intensity_lambda(self, z_u, z_v, et_uv):
-        ###################################
         z_u = z_u.view(-1, self.hidden_dim)
         z_v = z_v.view(-1, self.hidden_dim)
         z_cat = torch.cat((z_u, z_v), dim=1)
