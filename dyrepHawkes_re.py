@@ -279,7 +279,7 @@ class DyRepHawkesRe(torch.nn.Module):
                     f_samples = lambda_t_allsamples*torch.exp(-surv_allsamples)
                     expectation = torch.from_numpy(np.cumsum(sampled_time_scale))*f_samples
                     expectation = expectation.sum()
-
+                    # 여기가 시간 예측 부분 !!!!
                     expected_time.append(expectation/self.num_time_samples)
 
             ## 6. Update the embedding z

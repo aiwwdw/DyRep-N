@@ -123,7 +123,6 @@ def test_time_pred(model, reoccur_dict, reoccur_time_hr):
             ########### use the event sequence to predict time
             # if batch_idx == 0:
             #     start_time = time_cur[0]
-            # ae, batch_pred_res = time_prediction_error(A_pred, u, v, k, time_cur, start_time, Survival_term, reoccur_dict)
             ########### predict with repeat current event sequence with reoccur_dict
             ae, batch_pred_res = mae_error(u,v,k,time_cur,output[-1],reoccur_dict, end_date)
             ########### predict with repeat current event sequence with reoccur_time_true
@@ -186,127 +185,6 @@ def test_all(model, return_time_hr):
                              (loss / ((batch_idx + 1) * batch_size)), ap, auc))
     return total_ae / len(test_set.all_events), loss / len(test_set.all_events), \
            float(torch.tensor(aps).mean()), float(torch.tensor(aucs).mean())
-
-def test(model, reoccur_dict, n_test_batches=None):
-    model.eval()
-    loss = 0
-    losses =[ [np.Inf, 0], [np.Inf, 0] ]
-    n_samples = 0
-    # Time slots with 10 days intervals as in the DyRep paper
-    timeslots = [t.toordinal() for t in test_loader.dataset.TEST_TIMESLOTS]
-    end_date = test_set.END_DATE
-    event_types = list(test_loader.dataset.event_types_num.keys()) #['comm', 'assoc']
-    # sort it by k
-    for event_t in test_loader.dataset.event_types_num:
-        event_types[test_loader.dataset.event_types_num[event_t]] = event_t
-
-    ## Com means the communication event type (will not change the network structure)
-    event_types += ['Com']
-    total_ae, total_sample_num = 0, 0.000001
-    mar, hits_10 = {}, {}
-    for event_t in event_types:
-        mar[event_t] = []
-        hits_10[event_t] = []
-        for c, slot in enumerate(timeslots):
-            mar[event_t].append([])
-            hits_10[event_t].append([])
-
-    start = time.time()
-
-    with torch.no_grad():
-        for batch_idx, data in enumerate(tqdm(test_loader)):
-            data[2] = data[2].float().to(args.device)
-            data[4] = data[4].double().to(args.device)
-            data[5] = data[5].double()
-            batch_size = len(data[0])
-            output = model(data)
-
-            loss += (-torch.sum(torch.log(output[0]) + 1e-10) + torch.sum(output[1])).item()
-            for i in range(len(losses)):
-                m1 = output[i].min()
-                m2 = output[i].max()
-                if m1 < losses[i][0]:
-                    losses[i][0] = m1
-                if m2 > losses[i][1]:
-                    losses[i][1] = m2
-            n_samples += 1
-            A_pred, Survival_term = output[2], output[3]
-            u, v, k, time_cur = data[0], data[1], data[3], data[5]
-
-            ae, batch_pred_res = mae_error(u, v, k, time_cur, output[-1], reoccur_dict, end_date)
-
-            total_ae += ae
-            total_sample_num += len(batch_pred_res)
-
-            m, h = MAR(A_pred, u, v, k, Survival_term=Survival_term)
-            assert len(time_cur) == len(m) == len(h) == len(k)
-            for t, m, h, k_ in zip(time_cur, m, h, k):
-                d = datetime.fromtimestamp(t.item()).toordinal()
-                event_t = event_types[k_.item()]
-                for c, slot in enumerate(timeslots):
-                    if d <= slot:
-                        mar[event_t][c].append(m)
-                        hits_10[event_t][c].append(h)
-                        if k_ > 0:
-                            mar['Com'][c].append(m)
-                            hits_10['Com'][c].append(h)
-                        if c > 0:
-                            assert slot > timeslots[c-1] and d > timeslots[c-1], (d, slot, timeslots[c-1])
-                        break
-
-            if batch_idx % 20 == 0:
-                print('\nTEST batch={}/{}, time prediction MAE {}, loss={:.3f}'.
-                      format(batch_idx + 1, len(test_loader), (total_ae / total_sample_num),
-                             (loss / ((batch_idx + 1)*batch_size))))
-
-            if n_test_batches is not None and batch_idx >= n_test_batches - 1:
-                break
-
-    time_iter = time.time() - start
-
-
-    print('\nTEST batch={}/{}, time prediction MAE {}, loss={:.3f}, psi={}, loss1 min/max={:.4f}/{:.4f}, '
-          'loss2 min/max={:.4f}/{:.4f}, integral time stamps={}, sec/iter={:.4f}'.
-          format(batch_idx + 1, len(test_loader), (total_ae/total_sample_num), (loss / n_samples),
-                 [model.psi[c].item() for c in range(len(model.psi))],
-                 losses[0][0], losses[0][1], losses[1][0], losses[1][1],
-                 len(model.Lambda_dict), time_iter / (batch_idx + 1)))
-
-    # Report results for different time slots in the test set
-    for c, slot in enumerate(timeslots):
-        s = 'Slot {}: '.format(c)
-        for event_t in event_types:
-            sfx = '' if event_t == event_types[-1] else ', '
-            if len(mar[event_t][c]) > 0:
-                s += '{} ({} events): MAR={:.2f}+-{:.2f}, HITS_10={:.3f}+-{:.3f}'.\
-                    format(event_t, len(mar[event_t][c]), np.mean(mar[event_t][c]), np.std(mar[event_t][c]),
-                           np.mean(hits_10[event_t][c]), np.std(hits_10[event_t][c]))
-            else:
-                s += '{} (no events)'.format(event_t)
-            s += sfx
-        print(s)
-
-    mar_all, hits_10_all = {}, {}
-    for event_t in event_types:
-        mar_all[event_t] = []
-        hits_10_all[event_t] = []
-        for c, slot in enumerate(timeslots):
-            mar_all[event_t].extend(mar[event_t][c])
-            hits_10_all[event_t].extend(hits_10[event_t][c])
-
-    s = 'All slots: '
-    for event_t in event_types:
-        sfx = '' if event_t == event_types[-1] else ', '
-        if len(mar_all[event_t]) > 0:
-            s += '{} ({} events): MAR={:.2f}+-{:.2f}, HITS_10={:.3f}+-{:.3f}'.\
-                format(event_t, len(mar_all[event_t]), np.mean(mar_all[event_t]), np.std(mar_all[event_t]),
-                       np.mean(hits_10_all[event_t]), np.std(hits_10_all[event_t]))
-        else:
-            s += '{} (no events)'.format(event_t)
-        s += sfx
-    print(s)
-
-    return mar_all, hits_10_all, loss / n_samples, total_ae/total_sample_num
 
 if __name__ == '__main__':
 

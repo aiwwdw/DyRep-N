@@ -181,10 +181,10 @@ def test_all(model, return_time_hr):
             return_time_pred = torch.stack(output[-1]).cpu().numpy()
             mae = np.mean(abs(return_time_pred - return_time_hr[batch_idx*args.batch_size:(batch_idx*200+batch_size)]))
             total_ae += mae * batch_size
-            if batch_idx % 20 == 0:
-                print('\nTEST batch={}/{}, time prediction MAE {}, loss {:.3f}, ap {}, auc {}'.
-                      format(batch_idx + 1, len(test_loader), mae,
-                             (loss / ((batch_idx + 1) * batch_size)), ap, auc))
+
+        print('\nTEST batch={}/{}, time prediction MAE {}, loss {:.3f}, ap {}, auc {}'.
+                format(batch_idx + 1, len(test_loader), mae,
+                    (loss / ((batch_idx + 1) * batch_size)), ap, auc))
     return total_ae / len(test_set.all_events), loss / len(test_set.all_events), \
            float(torch.tensor(aps).mean()), float(torch.tensor(aucs).mean())
 
@@ -339,9 +339,8 @@ if __name__ == '__main__':
     train_set = SocialEvolutionDataset(data['initial_embeddings'], data['train'], 'CloseFriend')
     test_set = SocialEvolutionDataset(data['initial_embeddings'], data['test'], 'CloseFriend', data_train=data['train'])
     initial_embeddings = data['initial_embeddings'].copy()
+    # social_data_loader에 클래스 내 함수로 존재
     A_initial = train_set.get_Adjacency()[0]
-    if not isinstance(A_initial, list):
-            A_initial = [A_initial]
     time_bar_initial = np.zeros((train_set.N_nodes, 1)) + train_set.FIRST_DATE.timestamp()
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=False)
     test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False)
@@ -383,26 +382,28 @@ if __name__ == '__main__':
     #       np.sum([np.prod(p.size()) if p.requires_grad else 0 for p in model.parameters()]))
     # for arg in vars(args):
     #     print(arg, getattr(args, arg))
-
     # dt = datetime.now()
     # print('start time:', dt)
     # experiment_ID = '%s_%06d' % (platform.node(), dt.microsecond)
     # print('experiment_ID: ', experiment_ID)
 
-    epoch_start = 1
-    batch_start = 0
 
+    # for문 전에 변수 설정
     total_losses = []
     total_losses_lambda, total_losses_surv = [], []
     test_MAR, test_HITS10, test_loss = [], [], []
     all_test_mae, all_test_loss = [], []
     all_test_ap, all_test_auc = [], []
     first_batch = []
-    for epoch in range(epoch_start, args.epochs + 1):
+    for epoch in range(1, args.epochs + 1):
         # def reset_state(self, node_embeddings_initial, A_initial, node_degree_initial, time_bar, resetS=False):
         # Reinitialize node embeddings and adjacency matrices, but keep the model parameters intact
+        
         model.train()
+
         node_degree_initial = []
+        if not isinstance(A_initial, list):
+            A_initial = [A_initial]
         for at, A in enumerate(A_initial):
             node_degree_initial.append(np.sum(A, axis=1))
         if len(A_initial) == 1: A_initial = A_initial[0]
@@ -411,62 +412,75 @@ if __name__ == '__main__':
                           A_initial=A_initial,
                           node_degree_initial=node_degree_initial,
                           time_bar=time_bar,
-                          resetS=(epoch==epoch_start))
+                          resetS=(epoch==1))
         train_loader.dataset.time_bar = time_bar
         test_loader.dataset.time_bar = time_bar
 
         start = time.time()
         total_loss = 0
         total_loss_lambda, total_loss_surv = 0, 0
+        
+        # 각 training data별 학습 과정
+        #tqdm이 막대그래프 표시하는 역할
         for batch_idx, data_batch in enumerate(tqdm(train_loader)):
             optimizer.zero_grad()
+
+            # 디테일 수정 사항 - 안중요
             data_batch[2] = data_batch[2].float().to(args.device)
             data_batch[4] = data_batch[4].double().to(args.device)
             data_batch[5] = data_batch[5].double()# no need of GPU
             if args.include_link_feat:
                 data_batch[6] = data_batch[6].float().to(args.device)
+            
+            # 모델 forward 돌리고 역전파 생성
+            # 단순히 log(pos)- neg 형태의 기울기 반영, time expectation은 구현 덜됨
             output = model(data_batch)
             losses = [-torch.sum(torch.log(output[0]) + 1e-10), torch.sum(output[1])]
             loss = torch.sum(torch.stack(losses))/args.batch_size
             loss.backward()
+
             # TODO: test the clip value  for model paramters
             nn.utils.clip_grad_value_(model.parameters(), 100)
 
             optimizer.step()
-            model.psi.data = torch.clamp(model.psi.data, 1e-1, 1e+3)  # to prevent overflow in computing Lambda
+            # 기울기 값에 제한을 두는 과정
+            model.psi.data = torch.clamp(model.psi.data, 1e-1, 1e+3)
             time_iter = time.time() - start
-            model.z = model.z.detach()  # to reset the computational graph and avoid backpropagating second time
+            model.z = model.z.detach()
             model.S = model.S.detach()
-            if batch_idx % 100 == 0:
-                if batch_idx == 0:
-                    first_batch.append(loss)
+            
+            
+
+            if batch_idx == 0:
                 print("Training epoch {}, batch {}/{}, loss {}, loss_lambda {}, loss_surv {}".format(
                     epoch, batch_idx+1, len(train_loader), loss, losses[0]/args.batch_size, losses[1]/args.batch_size))
-                # result = test_time_pred(model, test_reoccur_dict, test_reoccur_time_hr)
-                # result = test(model, test_reoccur_dict)
+            
+            if batch_idx == 0:
+                first_batch.append(loss)
             total_loss += loss*args.batch_size
             total_loss_lambda += losses[0]
             total_loss_surv += losses[1]
             scheduler.step()
 
+        # loss 리스트에 추가
         total_loss = float(total_loss)/len(train_set.all_events)
         total_loss_lambda = float(total_loss_lambda)/len(train_set.all_events)
         total_loss_surv = float(total_loss_surv)/len(train_set.all_events)
-
         total_losses.append(total_loss)
         total_losses_lambda.append(total_loss_lambda)
         total_losses_surv.append(total_loss_surv)
-        print("Training epoch {}/{}, time per batch {}, loss {}, loss_lambda {}, loss_surv {}".format(
-            epoch, args.epochs + 1, time_iter/float(batch_idx+1), total_loss, total_loss_lambda, total_loss_surv))
+        if batch_idx == 0:
+            print("Training epoch {}/{}, time per batch {}, loss {}, loss_lambda {}, loss_surv {}".format(
+                epoch, args.epochs + 1, time_iter/float(batch_idx+1), total_loss, total_loss_lambda, total_loss_surv))
 
-        print("Testing Start")
+        # test_all: for 문으로 똑같이 한번씩 돌리는 코드 들어있음
         test_mae, test_loss, test_ap, test_auc = test_all(model, test_reoccur_time_hr)
-        # test_mae, test_loss, test_ap, test_auc = test_all(model, test_reoccur_dict, test_reoccur_time_hr)
+        
+        #리스트에 정보 추가
         all_test_mae.append(test_mae)
         all_test_loss.append(test_loss)
         all_test_ap.append(test_ap)
         all_test_auc.append(test_auc)
-
         print('\nTEST epoch {}/{}, loss={:.3f}, time prediction MAE {}, ap {}, auc{}'.format(
             epoch, args.epochs + 1, test_loss, test_mae, test_ap, test_auc))
     

@@ -137,21 +137,14 @@ class SocialEvolutionDataset(EventsDataset):
                     pickle.dump(data, f, protocol=2)  # for compatibility
         return data
 
-    def get_Adjacency(self, multirelations=False):
+    def get_Adjacency(self): # 원래 인자에 multirelations라는 부분이 있었음
         dates = sorted(list(self.data.Adj.keys()))
         Adj_all = self.data.Adj[dates[0]]
         Adj_all_last = self.data.Adj[dates[-1]]
-        # Adj_friends = Adj_all[self.MainAssociation].copy()
-        if multirelations:
-            keys = sorted(list(Adj_all.keys()))
-            keys.remove(self.MainAssociation)
-            keys = [self.MainAssociation] + keys  # to make sure CloseFriend goes first
-            Adj_all = np.stack([Adj_all[rel].copy() for rel in keys], axis=2)
-            Adj_all_last = np.stack([Adj_all_last[rel].copy() for rel in keys], axis=2)
-        else:
-            keys = [self.MainAssociation]
-            Adj_all = Adj_all[self.MainAssociation].copy()
-            Adj_all_last = Adj_all_last[self.MainAssociation].copy()
+        
+        Adj_all = Adj_all[self.MainAssociation].copy()
+        keys = [self.MainAssociation]
+        Adj_all_last = Adj_all_last[self.MainAssociation].copy()
 
         return Adj_all, keys, Adj_all_last
 
