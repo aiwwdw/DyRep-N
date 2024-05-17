@@ -14,6 +14,7 @@ class DyRepHawkesRe(torch.nn.Module):
         self.bipartite = False
         self.all_comms = all_comms
         self.include_link_features = False
+        
         self.num_nodes = num_nodes
         self.hidden_dim = hidden_dim
         self.random_state = random_state
@@ -104,12 +105,6 @@ class DyRepHawkesRe(torch.nn.Module):
         ts_diff_neg = []
         z_all = []
         expected_time = []
-        h_max = 5000
-        timestep = 1
-        num_samples = int(h_max / timestep) + 1
-        all_td = torch.linspace(0, h_max, num_samples).unsqueeze(1).repeat(1, len(u)).view(-1)
-        embeddings_u_tpre, embeddings_v_tpre =  [], []
-
         # 모든 training data에 대해서 for문 시행
        
         for it in range(batch_size):
@@ -209,8 +204,84 @@ class DyRepHawkesRe(torch.nn.Module):
                 self.time_keys.append(time_key)
                 # test for time prediction
                 if not self.training:
-                    embeddings_u_tpre.append(z_new[u_it].clone())
-                    embeddings_v_tpre.append(z_new[v_it].clone())
+                    t_cur_date = datetime.fromtimestamp(int(t[it]))
+                    # Use the cur and most recent time
+                    t_prev = datetime.fromtimestamp(int(max(t_bar[it][u_it], t_bar[it][v_it])))
+                    td = t_cur_date - t_prev
+                    time_scale_hour = round((td.days*24 + td.seconds/3600),3)
+                    surv_allsamples = z_new.new_zeros(self.num_time_samples)
+                    factor_samples = 2*self.random_state.rand(self.num_time_samples)
+                    sampled_time_scale = time_scale_hour*factor_samples
+
+                    embeddings_u = z_new[u_it].expand(self.num_time_samples, -1)
+                    embeddings_v = z_new[v_it].expand(self.num_time_samples, -1)
+                    all_td_c = torch.zeros(self.num_time_samples)
+
+                    t_c_n = torch.tensor(list(map(lambda x: int((t_cur_date+timedelta(hours=x)).timestamp()),
+                                                  np.cumsum(sampled_time_scale)))).to(self.device)
+                    all_td_c = t_c_n - t[it]
+                    if self.bipartite:
+                        u_neg_sample = self.random_state.choice(
+                            all_nodes_u,
+                            size=self.num_neg_samples*self.num_time_samples,
+                            replace=len(all_nodes_u) < self.num_neg_samples*self.num_time_samples)
+                        v_neg_sample = self.random_state.choice(
+                            all_nodes_v,
+                            size=self.num_neg_samples*self.num_time_samples,
+                            replace=len(all_nodes_v) < self.num_neg_samples*self.num_time_samples)
+                    else:
+                        all_uv_neg_sample = self.random_state.choice(
+                            batch_nodes,
+                            size=self.num_neg_samples*2*self.num_time_samples,
+                            replace=len(batch_nodes) < self.num_neg_samples*2*self.num_time_samples)
+                        u_neg_sample = all_uv_neg_sample[:self.num_neg_samples*self.num_time_samples]
+                        v_neg_sample = all_uv_neg_sample[self.num_neg_samples*self.num_time_samples:]
+
+                    embeddings_u_neg = torch.cat((
+                        z_new[u_it].view(1, -1).expand(self.num_neg_samples*self.num_time_samples, -1),
+                        z_new[u_neg_sample]), dim=0).to(self.device)
+                    embeddings_v_neg = torch.cat((
+                        z_new[v_neg_sample],
+                        z_new[v_it].view(1, -1).expand(self.num_neg_samples*self.num_time_samples, -1)), dim=0).to(self.device)
+                    all_td_c_expand = all_td_c.unsqueeze(1).repeat(1,self.num_neg_samples).view(-1)
+                    surv_0 = self.compute_hawkes_lambda(embeddings_u_neg, embeddings_v_neg,
+                                                        torch.zeros(len(embeddings_u_neg)),
+                                                        torch.cat([all_td_c_expand, all_td_c_expand]))
+                    surv_1 = self.compute_hawkes_lambda(embeddings_u_neg, embeddings_v_neg,
+                                                        torch.ones(len(embeddings_u_neg)),
+                                                        torch.cat([all_td_c_expand, all_td_c_expand]))
+                    surv_01 = (surv_0 + surv_1).view(-1,self.num_neg_samples).mean(dim=-1)
+                    surv_allsamples = surv_01[:self.num_time_samples]+surv_01[self.num_time_samples:]
+
+                    # for n in range(1, self.num_time_samples+1):
+                    #     t_c_n = int((t_cur_date + timedelta(hours=sum(sampled_time_scale[:n]))).timestamp())
+                    #     td_c = t_c_n - t[it]
+                    #     all_td_c[n - 1] = td_c
+                    #
+                    #     batch_uv_neg_sample = self.random_state.choice(batch_nodes, size=self.num_neg_samples * 2,
+                    #                                             replace=len(batch_nodes) < 2 * self.num_neg_samples)
+                    #     u_neg_sample = batch_uv_neg_sample[self.num_neg_samples:]
+                    #     v_neg_sample = batch_uv_neg_sample[:self.num_neg_samples]
+                    #     embeddings_u_neg = torch.cat((z_new[u_it].view(1,-1).expand(self.num_neg_samples,-1),
+                    #                                     z_new[u_neg_sample]),dim=0)
+                    #     embeddings_v_neg = torch.cat([z_new[v_neg_sample],
+                    #                                   z_new[v_it].view(1,-1).expand(self.num_neg_samples,-1)],dim=0)
+                    #
+                    #     surv_0 = self.compute_hawkes_lambda(embeddings_u_neg, embeddings_v_neg,
+                    #                                         torch.zeros(len(embeddings_u_neg)), td_c)
+                    #     surv_1 = self.compute_hawkes_lambda(embeddings_u_neg, embeddings_v_neg,
+                    #                                         torch.ones(len(embeddings_u_neg)), td_c)
+                    #
+                    #     surv_allsamples[n-1] = (torch.sum(surv_0) + torch.sum(surv_1)) / self.num_neg_samples
+
+                    lambda_t_allsamples = self.compute_hawkes_lambda(embeddings_u, embeddings_v,
+                                                                     torch.zeros(self.num_time_samples)+et_it,
+                                                                     all_td_c)
+                    f_samples = lambda_t_allsamples*torch.exp(-surv_allsamples)
+                    expectation = torch.from_numpy(np.cumsum(sampled_time_scale))*f_samples
+                    expectation = expectation.sum()
+
+                    expected_time.append(expectation/self.num_time_samples)
 
             ## 6. Update the embedding z
             z_all.append(z_new)
@@ -219,18 +290,7 @@ class DyRepHawkesRe(torch.nn.Module):
         self.z = z_new
 
         # time prediction
-        if not self.training:
-            embeddings_u_tpre = torch.stack(embeddings_u_tpre, dim=0).repeat(num_samples, 1)
-            embeddings_v_tpre = torch.stack(embeddings_v_tpre, dim=0).repeat(num_samples, 1)
-            intensity = 0.5 * ( self.compute_hawkes_lambda(embeddings_u_tpre, embeddings_v_tpre,  event_types.repeat(num_samples), all_td)
-                                .view(-1, len(u)) +
-                                self.compute_hawkes_lambda(embeddings_v_tpre, embeddings_u_tpre,  event_types.repeat(num_samples), all_td)
-                                .view(-1, len(u)) )
-            integral = torch.cumsum(timestep * intensity, dim=0) # 이렇게 더하는게 어떻게 적분이 됨?
-            density = (intensity * torch.exp(-integral))
-            t_sample = all_td.view(-1, len(u)) * density
-            expected_time = (timestep * 0.5 * (t_sample[:-1] + t_sample[1:])).sum(dim=0)
-
+        
         #### batch update for all events' intensity
 
         # batch_update면 위에서 했던거 for문 끝나고 한번에 시행
@@ -269,36 +329,24 @@ class DyRepHawkesRe(torch.nn.Module):
         # 리턴값: 엣지의 람다, neg엣지의 평균, A_pred, surv, 예상시간
         return lambda_uv, lambda_uv_neg / self.num_neg_samples, A_pred, surv, expected_time
         
-    def compute_hawkes_lambda(self, z_u, z_v, et_uv, td, symmetric=True):
+    def compute_hawkes_lambda(self, z_u, z_v, et_uv, td):
         z_u = z_u.view(-1, self.hidden_dim)
         z_v = z_v.view(-1, self.hidden_dim)
         z_cat = torch.cat((z_u, z_v), dim=1)
         et = (et_uv>0).long()
         g = z_cat.new_zeros(len(z_cat))
         # Total two types of events
-        if symmetric:
-            z_uv = torch.cat((z_u, z_v), dim=1)
-            z_vu = torch.cat((z_v, z_u), dim=1)
-            g_uv = z_uv.new_zeros(len(z_uv))
-            g_vu = z_vu.new_zeros(len(z_vu))
-            for k in range(2):
-                idx = (et == k)
-                if torch.sum(idx) > 0:
-                    g_uv[idx] = self.omega[k](z_uv).flatten()[idx]
-                    g_vu[idx] = self.omega[k](z_vu).flatten()[idx]
-            g = 0.5 * (g_uv + g_vu)
-        else:
-            for k in range(2):
-                idx = (et==k)
-                if torch.sum(idx)>0:
-                    g[idx] = self.omega[k](z_cat).flatten()[idx]
+        for k in range(2):
+            idx = (et==k)
+            if torch.sum(idx)>0:
+                g[idx] = self.omega[k](z_cat).flatten()[idx]
 
         psi = self.psi[et]
         alpha = self.alpha[et]
         w_t = self.w_t[et]
-        g += alpha*torch.exp(-w_t*(td/self.train_td_max))
         g_psi = g / (psi + 1e-7)
-        Lambda = psi * (torch.log(1 + torch.exp(-g_psi)) + g_psi)  
+        # g_psi = torch.clamp(g/(psi + 1e-7), -75, 75) # avoid overflow
+        Lambda = psi * torch.log(1 + torch.exp(g_psi)) + alpha*torch.exp(-w_t*(td/self.train_td_max))
         return Lambda
 
     def compute_intensity_lambda(self, z_u, z_v, et_uv):
