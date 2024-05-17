@@ -311,8 +311,9 @@ def test(model, reoccur_dict, n_test_batches=None):
 
 if __name__ == '__main__':
 
+    # 기본적인 입력 parameter 세팅
+    # epochs 조정
     parser = argparse.ArgumentParser(description='DyRep Model Training Parameters')
-    parser.add_argument('--dataset', type=str, default='github', choices=['github', 'social', 'wikipedia', 'reddit', 'synthetic'])
     parser.add_argument('--data_dir', type=str, default='./')
     parser.add_argument('--seed', type=int, default=1111, help='random seed')
     parser.add_argument('--hidden_dim', type=int, default=32, help='hidden layer dimension in DyRep')
@@ -320,59 +321,46 @@ if __name__ == '__main__':
     parser.add_argument('--device', type=str, default='cpu', help='cpu or cuda')
     parser.add_argument('--lr', type=float, default=0.0002, help='learning rate')
     parser.add_argument('--lr_decay_step', type=str, default='20', help='number of epochs after which to reduce lr')
-    parser.add_argument('--epochs', type=int, default=5, help='number of epochs')
+    parser.add_argument('--epochs', type=int, default=3, help='number of epochs')
     parser.add_argument('--all_comms', type=bool, default=False, help='assume all of the links in Jodie as communication or not')
     parser.add_argument('--include_link_feat', type=bool, default=False, help='include link features or not')
     args = parser.parse_args()
     args.lr_decay_step = list(map(int, args.lr_decay_step.split(',')))
     
-    # Set seed
+    
     np.random.seed(args.seed)
     rnd = np.random.RandomState(args.seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = True
     torch.manual_seed(args.seed)
 
-    if args.dataset == 'social':
-        data = SocialEvolutionDataset.load_data(args.data_dir, 0.8)
-        train_set = SocialEvolutionDataset(data['initial_embeddings'], data['train'], 'CloseFriend')
-        test_set = SocialEvolutionDataset(data['initial_embeddings'], data['test'], 'CloseFriend',
-                                          data_train=data['train'])
-        initial_embeddings = data['initial_embeddings'].copy()
-        A_initial = train_set.get_Adjacency()[0]
-    else:
-        raise NotImplementedError(args.dataset)
-
-
+    # dataset 받기
+    data = SocialEvolutionDataset.load_data("./SocialEvolution", 0.8)
+    train_set = SocialEvolutionDataset(data['initial_embeddings'], data['train'], 'CloseFriend')
+    test_set = SocialEvolutionDataset(data['initial_embeddings'], data['test'], 'CloseFriend', data_train=data['train'])
+    initial_embeddings = data['initial_embeddings'].copy()
+    A_initial = train_set.get_Adjacency()[0]
+    if not isinstance(A_initial, list):
+            A_initial = [A_initial]
     time_bar_initial = np.zeros((train_set.N_nodes, 1)) + train_set.FIRST_DATE.timestamp()
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=False)
     test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False)
     test_reoccur_dict, test_reoccur_time_ts, test_reoccur_time_hr = get_return_time(test_set)
 
-    def normalize_td(data_set):
-        dic = defaultdict(list)
-        for src, dst, _, t in data_set.all_events:
-            dic[src].append(t.timestamp())
-            dic[dst].append(t.timestamp())
-        all_diff = []
-        all_td = []
-        for k, v in dic.items():
-            ts = np.array(v)
-            td = np.diff(ts)
-            all_diff.append(td)
-            if len(v) >= 2:
-                timestamp = np.array(list(map(lambda x: datetime.fromtimestamp(x), v)))
-                delta = np.diff(timestamp)
-                all_td.append(delta)
-        all_diff = np.concatenate(all_diff)
-        all_td = np.concatenate(all_td)
-        all_td_hr = np.array(list(map(lambda x: round(x.days * 24 + x.seconds / 3600, 3), all_td)))
-        return all_diff.mean(), all_diff.std(), all_diff.max(), \
-               round(all_td_hr.mean(), 3), round(all_td_hr.std(), 3), round(all_td_hr.max(), 3)
-
-
-    train_td_mean, train_td_std, train_td_max, train_td_hr_mean, train_td_hr_std, train_td_hr_max = normalize_td(train_set)
+    # train_td_max 구하기
+    dic = defaultdict(list)
+    for src, dst, _, t in train_set.all_events:
+        dic[src].append(t.timestamp())
+        dic[dst].append(t.timestamp())
+    all_diff = []
+    for k, v in dic.items():
+        ts = np.array(v)
+        td = np.diff(ts)
+        all_diff.append(td)
+    all_diff = np.concatenate(all_diff)
+    train_td_max = all_diff.max()
     end_date = test_set.END_DATE
+
 
     model = DyRepHawkesRe(num_nodes=train_set.N_nodes,
                   hidden_dim=args.hidden_dim,
@@ -384,22 +372,22 @@ if __name__ == '__main__':
                   device=args.device,
                   train_td_max=train_td_max,
                   all_comms=args.all_comms).to(args.device)
-
-    print(model)
-    print('number of training parameters: %d' %
-          np.sum([np.prod(p.size()) if p.requires_grad else 0 for p in model.parameters()]))
-
+    # 학습 변수 설정
     params_main = [param for param in model.parameters() if param.requires_grad]
     optimizer = optim.Adam(params_main, lr=args.lr, betas=(0.5, 0.999))
     scheduler = lr_scheduler.MultiStepLR(optimizer, args.lr_decay_step, gamma=0.5)
+    
+    # 모델 정보
+    # print(model)
+    # print('number of training parameters: %d' %
+    #       np.sum([np.prod(p.size()) if p.requires_grad else 0 for p in model.parameters()]))
+    # for arg in vars(args):
+    #     print(arg, getattr(args, arg))
 
-    for arg in vars(args):
-        print(arg, getattr(args, arg))
-
-    dt = datetime.now()
-    print('start time:', dt)
-    experiment_ID = '%s_%06d' % (platform.node(), dt.microsecond)
-    print('experiment_ID: ', experiment_ID)
+    # dt = datetime.now()
+    # print('start time:', dt)
+    # experiment_ID = '%s_%06d' % (platform.node(), dt.microsecond)
+    # print('experiment_ID: ', experiment_ID)
 
     epoch_start = 1
     batch_start = 0
@@ -414,8 +402,6 @@ if __name__ == '__main__':
         # def reset_state(self, node_embeddings_initial, A_initial, node_degree_initial, time_bar, resetS=False):
         # Reinitialize node embeddings and adjacency matrices, but keep the model parameters intact
         model.train()
-        if not isinstance(A_initial, list):
-            A_initial = [A_initial]
         node_degree_initial = []
         for at, A in enumerate(A_initial):
             node_degree_initial.append(np.sum(A, axis=1))
@@ -480,17 +466,14 @@ if __name__ == '__main__':
         all_test_loss.append(test_loss)
         all_test_ap.append(test_ap)
         all_test_auc.append(test_auc)
+
         print('\nTEST epoch {}/{}, loss={:.3f}, time prediction MAE {}, ap {}, auc{}'.format(
             epoch, args.epochs + 1, test_loss, test_mae, test_ap, test_auc))
-    #
-    #     # result = test(model, n_test_batches=None)
-    #     # test_MAR.append(np.mean(result[0]['Com']))
-    #     # test_HITS10.append(np.mean(result[1]['Com']))
-    #     # test_loss.append(result[2])
-    #     # print("Testing results: MAR {}, HITS10 {}, test_loss {}".format(test_MAR[-1], test_HITS10[-1], test_loss[-1]))
-    #
-    # print('end time:', datetime.now())
+    
 
+    # 무시해도 됨 - numpy 관련 에러 수정(지우지는 마삼)
+    detached_tensors = [tensor.detach() for tensor in first_batch]
+    detached_arrays = [tensor.numpy() for tensor in detached_tensors]
 
     fig = plt.figure(figsize=(12, 5))
     plt.subplot(1, 2, 1)
@@ -498,20 +481,20 @@ if __name__ == '__main__':
     plt.plot(np.arange(1, args.epochs + 1), np.array(total_losses_lambda), 'r', label='loss events')
     plt.plot(np.arange(1, args.epochs + 1), np.array(total_losses_surv), 'b', label='loss nonevents')
     plt.legend()
-    plt.title("DyRep, wiki, training loss")
+    plt.title("DyRep, training loss")
     plt.subplot(1, 2, 2)
-    plt.plot(np.arange(1, args.epochs + 1), np.array(first_batch.detach()), 'r')
+    plt.plot(np.arange(1, args.epochs + 1), np.array(detached_arrays), 'r')
     plt.title("DyRep, loss for the first batch for each epoch")
     fig.savefig('dyrepHawkes_social_train.png')
 
     fig = plt.figure(figsize=(18, 5))
     plt.subplot(1, 3, 1)
-    plt.plot(np.arange(1, args.epochs + 1), np.array(all_test_loss.detach()), 'k', label='total loss')
-    plt.title("DyRep, wiki, test loss")
+    plt.plot(np.arange(1, args.epochs + 1), np.array(all_test_loss), 'k', label='total loss')
+    plt.title("DyRep, test loss")
     plt.subplot(1, 3, 2)
-    plt.plot(np.arange(1, args.epochs + 1), np.array(all_test_ap.detach()), 'r')
-    plt.title("DyRep, wiki, test ap")
+    plt.plot(np.arange(1, args.epochs + 1), np.array(all_test_ap), 'r')
+    plt.title("DyRep, test ap")
     plt.subplot(1, 3, 3)
-    plt.plot(np.arange(1, args.epochs + 1), np.array(all_test_mae.detach()), 'r')
-    plt.title("DyRep, wiki, test mae")
+    plt.plot(np.arange(1, args.epochs + 1), np.array(all_test_mae), 'r')
+    plt.title("DyRep, test mae")
     fig.savefig('dyrepHawkes_social_test.png')
