@@ -298,8 +298,7 @@ class DyRepHawkesRe(torch.nn.Module):
         w_t = self.w_t[et]
         g += alpha*torch.exp(-w_t*(td/self.train_td_max))
         g_psi = g / (psi + 1e-7)
-        # g_psi = torch.clamp(g/(psi + 1e-7), -75, 75) # avoid overflow
-        Lambda = psi * (torch.log(1 + torch.exp(-g_psi)) + g_psi)  #+ alpha*torch.exp(-w_t*(td/self.train_td_max))
+        Lambda = psi * (torch.log(1 + torch.exp(-g_psi)) + g_psi)  
         return Lambda
 
     def compute_intensity_lambda(self, z_u, z_v, et_uv):
