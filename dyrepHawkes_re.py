@@ -46,11 +46,19 @@ class DyRepHawkesRe(torch.nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
+        """
+        모델의 모든 Linear 레이어의 파라미터를 초기화
+        각 Linear 레이어의 초기화 메서드를 호출하여 파라미터를 재설정
+        """
         for module in self.modules():
             if isinstance(module, Linear):
                 module.reset_parameters()
 
     def reset_state(self, node_embeddings_initial, A_initial, node_degree_initial, time_bar, resetS=False):
+        """
+        모델의 상태를 초기화
+        main에서 모델 만들고 실행됨
+        """
         z = np.pad(node_embeddings_initial, ((0, 0), (0, self.hidden_dim - node_embeddings_initial.shape[1])),'constant')
         z = torch.from_numpy(z).float().to(self.device)
         A = torch.from_numpy(A_initial).float().to(self.device)
@@ -219,22 +227,13 @@ class DyRepHawkesRe(torch.nn.Module):
                     t_c_n = torch.tensor(list(map(lambda x: int((t_cur_date+timedelta(hours=x)).timestamp()),
                                                   np.cumsum(sampled_time_scale)))).to(self.device)
                     all_td_c = t_c_n - t[it]
-                    if self.bipartite:
-                        u_neg_sample = self.random_state.choice(
-                            all_nodes_u,
-                            size=self.num_neg_samples*self.num_time_samples,
-                            replace=len(all_nodes_u) < self.num_neg_samples*self.num_time_samples)
-                        v_neg_sample = self.random_state.choice(
-                            all_nodes_v,
-                            size=self.num_neg_samples*self.num_time_samples,
-                            replace=len(all_nodes_v) < self.num_neg_samples*self.num_time_samples)
-                    else:
-                        all_uv_neg_sample = self.random_state.choice(
-                            batch_nodes,
-                            size=self.num_neg_samples*2*self.num_time_samples,
-                            replace=len(batch_nodes) < self.num_neg_samples*2*self.num_time_samples)
-                        u_neg_sample = all_uv_neg_sample[:self.num_neg_samples*self.num_time_samples]
-                        v_neg_sample = all_uv_neg_sample[self.num_neg_samples*self.num_time_samples:]
+
+                    all_uv_neg_sample = self.random_state.choice(
+                        batch_nodes,
+                        size=self.num_neg_samples*2*self.num_time_samples,
+                        replace=len(batch_nodes) < self.num_neg_samples*2*self.num_time_samples)
+                    u_neg_sample = all_uv_neg_sample[:self.num_neg_samples*self.num_time_samples]
+                    v_neg_sample = all_uv_neg_sample[self.num_neg_samples*self.num_time_samples:]
 
                     embeddings_u_neg = torch.cat((
                         z_new[u_it].view(1, -1).expand(self.num_neg_samples*self.num_time_samples, -1),
@@ -329,12 +328,30 @@ class DyRepHawkesRe(torch.nn.Module):
         return lambda_uv, lambda_uv_neg / self.num_neg_samples, A_pred, surv, expected_time
         
     def compute_hawkes_lambda(self, z_u, z_v, et_uv, td):
+        """
+        주어진 node embedding과 시간 차이를 사용하여 Hawkes 프로세스를 통해 event 강도 (lambda)를 계산
+        
+        Args:
+        z_u (torch.Tensor): Source node의 embedding (shape: [batch_size, hidden_dim])
+        z_v (torch.Tensor): Target node의 embedding (shape: [batch_size, hidden_dim])
+        et_uv (torch.Tensor): node u와 v 사이의 event 유형 (shape: [batch_size])
+        td (torch.Tensor): 현재 event와 마지막 event 사이의 시간 차이 (shape: [batch_size])
+
+        Returns:
+        torch.Tensor: 주어진 node pair와 event 유형에 대한 계산된 lambda
+        """
+
+        # embedding이 올바른 shape을 가지도록 보장
         z_u = z_u.view(-1, self.hidden_dim)
         z_v = z_v.view(-1, self.hidden_dim)
+
+        # node pair의 embedding을 연결
         z_cat = torch.cat((z_u, z_v), dim=1)
-        et = (et_uv>0).long()
-        g = z_cat.new_zeros(len(z_cat))
-        # Total two types of events
+
+        et = (et_uv>0).long()   # event 유형 (0 또는 1)을 결정
+        g = z_cat.new_zeros(len(z_cat))    # 강도 벡터를 초기화
+
+        # 각 event 유형에 대해 해당 linear layer (omega)를 사용하여 강도 (g)를 계산
         for k in range(2):
             idx = (et==k)
             if torch.sum(idx)>0:
@@ -345,16 +362,34 @@ class DyRepHawkesRe(torch.nn.Module):
         w_t = self.w_t[et]
         g_psi = g / (psi + 1e-7)
         # g_psi = torch.clamp(g/(psi + 1e-7), -75, 75) # avoid overflow
+        
+        # Hawkes 프로세스 강도 (Lambda) 계산, 뒷부분이 hawkes를 의미
         Lambda = psi * torch.log(1 + torch.exp(g_psi)) + alpha*torch.exp(-w_t*(td/self.train_td_max))
         return Lambda
 
     def compute_intensity_lambda(self, z_u, z_v, et_uv):
+        """
+        주어진 node embedding을 사용하여 event 강도 (lambda)를 계산
+        
+        Args:
+        z_u (torch.Tensor): Source node의 embedding (shape: [batch_size, hidden_dim])
+        z_v (torch.Tensor): Target node의 embedding (shape: [batch_size, hidden_dim])
+        et_uv (torch.Tensor): node u와 v 사이의 event 유형 (shape: [batch_size])
+
+        Returns:
+        torch.Tensor: 주어진 node pair와 event 유형에 대한 계산된 lambda
+        """
+        # embedding이 올바른 shape을 가지도록 보장
         z_u = z_u.view(-1, self.hidden_dim)
         z_v = z_v.view(-1, self.hidden_dim)
+
+        # node pair의 embedding을 연결
         z_cat = torch.cat((z_u, z_v), dim=1)
-        et = (et_uv>0).long()
-        g = z_cat.new_zeros(len(z_cat))
-        # Total two types of events
+
+        et = (et_uv>0).long()   # event 유형 (0 또는 1)을 결정
+        g = z_cat.new_zeros(len(z_cat))  # 강도 벡터를 초기화
+
+        # 각 event 유형에 대해 해당 linear layer (omega)를 사용하여 강도 (g)를 계산
         for k in range(2):
             idx = (et==k)
             if torch.sum(idx)>0:
@@ -362,34 +397,69 @@ class DyRepHawkesRe(torch.nn.Module):
 
         psi = self.psi[et]
         g_psi = torch.clamp(g/(psi + 1e-7), -75, 75) # avoid overflow
+
+        # 강도 (Lambda) 계산
         Lambda = psi * torch.log(1 + torch.exp(g_psi))
         return Lambda
 
     def update_node_embedding(self, prev_embedding, node_u, node_v, td):
+        """
+        주어진 node embedding과 시간 차이를 사용하여 node embedding을 업데이트합니다.
+        
+        Args:
+        prev_embedding (torch.Tensor): 이전 embedding (shape: [num_nodes, hidden_dim])
+        node_u (int): Source node의 인덱스
+        node_v (int): Target node의 인덱스
+        td (torch.Tensor): 시간 차이 (shape: [batch_size, 4]) , [days, hours, minutes, seconds]
+
+        Returns:
+        torch.Tensor: 업데이트된 node embedding
+        """
+
+        # 이전 embedding을 복제하여 새로운 embedding 생성
         z_new = prev_embedding.clone()
-        h_u_struct = prev_embedding.new_zeros((2, self.hidden_dim, self.n_assoc_types))# 2 -> update embedding for both u & v
+
+        # u와 v 모두의 embedding을 업데이트하기 위해 크기 [2, hidden_dim, n_assoc_types]의 텐서 초기화
+        h_u_struct = prev_embedding.new_zeros((2, self.hidden_dim, self.n_assoc_types))  # 2 -> u와 v 모두의 embedding 업데이트
+        
+        # u와 v를 번갈아 가며 embedding 업데이트
         for cnt, (v,u) in enumerate([(node_u,  node_v), (node_v, node_u)]):
             for at in range(self.n_assoc_types):
-                u_nb = self.A[u, :, at] > 0
-                num_u_nb = torch.sum(u_nb).item()
+                u_nb = self.A[u, :, at] > 0 # u의 이웃 노드 선택
+                num_u_nb = torch.sum(u_nb).item() # 이웃 노드의 수 계산
                 if num_u_nb > 0:
+                    # 이웃 노드의 embedding을 W_h를 통해 변환
                     h_i_bar = self.W_h(prev_embedding[u_nb]).view(num_u_nb, self.hidden_dim)
-                    q_ui = torch.exp(self.S[u, u_nb, at])
-                    q_ui = q_ui / (torch.sum(q_ui) + 1e-7)
-                    h_u_struct[cnt, :, at] = torch.max(torch.sigmoid(q_ui.view(-1,1)*h_i_bar), dim=0)[0]
+                    q_ui = torch.exp(self.S[u, u_nb, at])   # attention 계산
+                    q_ui = q_ui / (torch.sum(q_ui) + 1e-7)  # attention 정규화 
+                    h_u_struct[cnt, :, at] = torch.max(torch.sigmoid(q_ui.view(-1,1)*h_i_bar), dim=0)[0] #h_u_struct 계산
+        #node u와 v의 embedding update 논문 수식 바탕
         z_new[[node_u, node_v]] = torch.sigmoid(self.W_struct(h_u_struct.view(2, self.hidden_dim*self.n_assoc_types)) + \
                                   self.W_rec(prev_embedding[[node_u, node_v]]) + \
                                   self.W_t(td).view(2, self.hidden_dim))
         return z_new
 
     def update_A_S(self, u_it, v_it, et_it, lambda_uv_t):
+        """
+        주어진 event 정보를 사용하여 adjacency matrix (A)와 influence matrix (S)를 업데이트
+        
+        Args:
+        u_it (int): Source node의 인덱스.
+        v_it (int): Target node의 인덱스.
+        et_it (int): event 유형.
+        lambda_uv_t (float): node u와 v 사이의 event 강도 (lambda).
+        """
+        # 모든 이벤트를 association = communication으로 보는 경우, 
         if self.all_comms:
             self.A[u_it, v_it, 0] = self.A[v_it, u_it, 0] = 1
         else:
+            # event 유형이 0일 경우, 해당하는 타입의 adjacency matrix (A)를 업데이트
             if et_it <= 0:
                 self.A[u_it, v_it, np.abs(et_it)] = self.A[v_it, u_it, np.abs(et_it)] = 1
         A = self.A
         indices = torch.arange(self.num_nodes, device=self.device)
+
+        # attention matrix update -> algorithm 1과 동일
         for k in range(self.n_assoc_types):
             if (et_it>0) and (A[u_it, v_it, k]==0):
                 continue
