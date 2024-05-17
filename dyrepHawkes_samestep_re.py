@@ -14,7 +14,6 @@ class DyRepHawkesRe(torch.nn.Module):
         self.bipartite = False
         self.all_comms = all_comms
         self.include_link_features = False
-
         self.num_nodes = num_nodes
         self.hidden_dim = hidden_dim
         self.random_state = random_state
@@ -90,7 +89,7 @@ class DyRepHawkesRe(torch.nn.Module):
         u_all,  v_all = u.data.cpu().numpy(), v.data.cpu().numpy()
         A_pred, surv, lambda_pred = None, None, None
         
-        # training mode가 아니면 A_pred, surv를 계산해야함
+        # testing일때, A_pred, surv를 초기화 세팅
         if not self.training:
             A_pred = self.A.new_zeros((batch_size, self.num_nodes, self.num_nodes))
             surv = self.A.new_zeros((batch_size, self.num_nodes, self.num_nodes))
@@ -112,7 +111,9 @@ class DyRepHawkesRe(torch.nn.Module):
         embeddings_u_tpre, embeddings_v_tpre =  [], []
 
         # 모든 training data에 대해서 for문 시행
+       
         for it in range(batch_size):
+             # event edge 하나씩
             u_it, v_it, et_it, td_it = u_all[it], v_all[it], event_types[it], time_diff[it]
             
             #1차원 배열, z_all은 2차원 배열
@@ -144,8 +145,8 @@ class DyRepHawkesRe(torch.nn.Module):
 
 
             ## to compute survival probability in loss 계산
-            # 일어나지 않은 엣지를 샘플하고
-            # u,v에 대해 엣지들을 각각 리스트로 저장
+            # u v를 제외한 노드들에 대하여, num_neg_samples 만큼의 노드를 샘플링
+            # u와 샘플링된 노드를 엣지로, v와 샘플링된 노드를 엣지로 저장
             # u,v에 대해 엣지들의 t_bar 구하고, 종합 t_bar 구함
             batch_nodes = np.delete(np.arange(self.num_nodes), [u_it, v_it])
             # sample해야되는 총 개수가 batch_node보다 많으면 중복 허용인데 무의미한 코드
@@ -157,21 +158,22 @@ class DyRepHawkesRe(torch.nn.Module):
                                                      z_prev[batch_u_neg]), dim=0))
             batch_embeddings_v_neg.append(torch.cat([z_prev[batch_v_neg],
                                                      z_prev[v_it].expand(self.num_neg_samples, -1)], dim=0))
-            # 샘플 엣지들에 대해 각 t_bar에 대한 값 구하기
+            # 샘플 노드들에 대해 각 t_bar에 대한 값 구하기 t_bar: (num_node, 1)
             last_t_u_neg = t_bar[it, np.concatenate([[u_it] * self.num_neg_samples, batch_u_neg]), 0]
             last_t_v_neg = t_bar[it, np.concatenate([batch_v_neg, [v_it] * self.num_neg_samples]), 0]
-            # 모든 샘플 엣지에 대해 t_bar 즉 negative edge의 t_bar 구하기
+            # 각 엣지에 해당하는 노드 두개의 t_bar을 비교하여 negative samples edge의 t bar를 계산
             last_t_uv_neg = torch.cat([last_t_u_neg.view(-1,1), last_t_v_neg.view(-1,1)], dim=1).max(-1)[0].to(self.device)
             ts_diff_neg.append(t[it] - last_t_uv_neg)
 
 
-            ## 5. pair별 conditional density
+            ## 5. 모든 pair별 conditional density
             with torch.no_grad():
+                # (2 * self.num_nodes, hidden_dim)
                 z_uv_it = torch.cat((z_prev[u_it].detach().unsqueeze(0).expand(self.num_nodes,-1),
                            z_prev[v_it].detach().unsqueeze(0).expand(self.num_nodes, -1)), dim=0)
                 
                 # hawkes라고 가정하고 쓸데없는 코드 지움
-                # uv의 람다 구하기
+                # u,v에 연결되는 엣지의 람다만 구하기
                 # two type of events: assoc + comm
                 last_t_pred = torch.cat([
                     t_bar[it, [u_it, v_it], 0].unsqueeze(1).repeat(1, self.num_nodes).view(-1,1),
@@ -180,7 +182,7 @@ class DyRepHawkesRe(torch.nn.Module):
                 lambda_uv_pred = self.compute_hawkes_lambda(z_uv_it, z_prev.detach().repeat(2,1),
                                                             et_it.repeat(len(z_uv_it)), ts_diff_pred).detach()
                 
-                # 학습중이지 않을때 - 예측 A_pred 게산, Surv 계산
+                # testing - 예측 A_pred 게산, Surv 계산
                 if not self.training:
                     A_pred[it, u_it, :] = lambda_uv_pred[:self.num_nodes]
                     A_pred[it, v_it, :] = lambda_uv_pred[self.num_nodes:]
@@ -189,6 +191,7 @@ class DyRepHawkesRe(torch.nn.Module):
                     surv[it, [u_it, v_it], :] = s_u_v
                 
                 time_key = int(t[it])
+                # u,v에 연결할수는 있는 모든 노드 중, u,v를 제거해서 lambda를 계산, 
                 idx = np.delete(np.arange(self.num_nodes), [u_it, v_it])
                 idx = np.concatenate((idx, idx+self.num_nodes))
                 
@@ -201,9 +204,10 @@ class DyRepHawkesRe(torch.nn.Module):
                     self.time_keys = list(time_keys[:-1])
                     self.Lambda_dict[:-1] = self.Lambda_dict.clone()[1:]
                     self.Lambda_dict[-1] = 0
+                #구해진 idx로 lambda를 더해서 lambda_dict에 저장
                 self.Lambda_dict[len(self.time_keys)] = lambda_uv_pred[idx].sum().detach()
                 self.time_keys.append(time_key)
-                # For time prediction
+                # test for time prediction
                 if not self.training:
                     embeddings_u_tpre.append(z_new[u_it].clone())
                     embeddings_v_tpre.append(z_new[v_it].clone())
@@ -213,6 +217,8 @@ class DyRepHawkesRe(torch.nn.Module):
         
         # training data에 대한 for문이 끝난후
         self.z = z_new
+
+        # time prediction
         if not self.training:
             embeddings_u_tpre = torch.stack(embeddings_u_tpre, dim=0).repeat(num_samples, 1)
             embeddings_v_tpre = torch.stack(embeddings_v_tpre, dim=0).repeat(num_samples, 1)
@@ -220,7 +226,7 @@ class DyRepHawkesRe(torch.nn.Module):
                                 .view(-1, len(u)) +
                                 self.compute_hawkes_lambda(embeddings_v_tpre, embeddings_u_tpre,  event_types.repeat(num_samples), all_td)
                                 .view(-1, len(u)) )
-            integral = torch.cumsum(timestep * intensity, dim=0)
+            integral = torch.cumsum(timestep * intensity, dim=0) # 이렇게 더하는게 어떻게 적분이 됨?
             density = (intensity * torch.exp(-integral))
             t_sample = all_td.view(-1, len(u)) * density
             expected_time = (timestep * 0.5 * (t_sample[:-1] + t_sample[1:])).sum(dim=0)
@@ -360,7 +366,7 @@ class DyRepHawkesRe(torch.nn.Module):
                         y[w_idx] = y[w_idx]-x
                     y /= (torch.sum(y)+ 1e-7)
                     self.S[j,:,k] = y
-
+    
     def compute_cond_density(self, u, v, time_bar):
         N = self.num_nodes
         s_uv = self.Lambda_dict.new_zeros((2, N))
@@ -375,18 +381,20 @@ class DyRepHawkesRe(torch.nn.Module):
         t_bar_min = torch.min(time_bar[[u, v]]).item()
         if t_bar_min < time_keys_min:
             start_ind_min = 0
+            #노드의 이벤트가 dictionary 저장 전에 일어났따. 
         elif t_bar_min > time_keys_max:
-            # it means t_bar will always be larger, so there is no history for these nodes
+            # 이벤트가 이 노드들에서는 발생하지 않았다.
             return s_uv
         else:
             start_ind_min = self.time_keys.index(int(t_bar_min))
-
-        # Most recent time between
+            # 그 한참전에 일어난 노드부터 index시작
+        
+        # 각 노드와 다른 모든 노드 간의 가장 최근 이벤트 시간
         max_pairs = torch.max(torch.cat((time_bar[[u, v]].view(1, 2).expand(N, -1).t().contiguous().view(2 * N, 1),
                                          time_bar.repeat(2, 1)), dim=1), dim=1)[0].view(2, N).long().data.cpu().numpy()  # 2,N
 
         # compute cond density for all pairs of u and some i, then of v and some i
-        ############### ???
+
         for c, j in enumerate([u, v]):  # range(i + 1, N):
             for i in range(N):
                 if i == j:
@@ -399,7 +407,7 @@ class DyRepHawkesRe(torch.nn.Module):
                 elif t_bar > time_keys_max:
                     continue  # it means t_bar is current event, so there is no history for this pair of nodes
                 else:
-                    # t_bar is somewhere in between time_keys_min and time_keys_min
+                    # t_bar is somewhere in after time_keys_min
                     start_ind = self.time_keys.index(t_bar, start_ind_min)
 
                 indices.append((c, i))
