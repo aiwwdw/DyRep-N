@@ -312,7 +312,6 @@ def test(model, reoccur_dict, n_test_batches=None):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='DyRep Model Training Parameters')
-
     parser.add_argument('--dataset', type=str, default='github', choices=['github', 'social', 'wikipedia', 'reddit', 'synthetic'])
     parser.add_argument('--data_dir', type=str, default='./')
     parser.add_argument('--seed', type=int, default=1111, help='random seed')
@@ -321,11 +320,12 @@ if __name__ == '__main__':
     parser.add_argument('--device', type=str, default='cpu', help='cpu or cuda')
     parser.add_argument('--lr', type=float, default=0.0002, help='learning rate')
     parser.add_argument('--lr_decay_step', type=str, default='20', help='number of epochs after which to reduce lr')
-    parser.add_argument('--epochs', type=int, default=20, help='number of epochs')
+    parser.add_argument('--epochs', type=int, default=5, help='number of epochs')
     parser.add_argument('--all_comms', type=bool, default=False, help='assume all of the links in Jodie as communication or not')
     parser.add_argument('--include_link_feat', type=bool, default=False, help='include link features or not')
     args = parser.parse_args()
     args.lr_decay_step = list(map(int, args.lr_decay_step.split(',')))
+    
     # Set seed
     np.random.seed(args.seed)
     rnd = np.random.RandomState(args.seed)
@@ -333,44 +333,21 @@ if __name__ == '__main__':
     torch.backends.cudnn.benchmark = True
     torch.manual_seed(args.seed)
 
-    if args.dataset=='github':
-        train_set = GithubDataset('train', data_dir=args.data_dir)
-        test_set = GithubDataset('test', data_dir=args.data_dir)
-        initial_embeddings = np.random.randn(train_set.N_nodes, args.hidden_dim)
-        A_initial = train_set.get_Adjacency()
-    elif args.dataset == 'social':
+    if args.dataset == 'social':
         data = SocialEvolutionDataset.load_data(args.data_dir, 0.8)
         train_set = SocialEvolutionDataset(data['initial_embeddings'], data['train'], 'CloseFriend')
         test_set = SocialEvolutionDataset(data['initial_embeddings'], data['test'], 'CloseFriend',
                                           data_train=data['train'])
         initial_embeddings = data['initial_embeddings'].copy()
         A_initial = train_set.get_Adjacency()[0]
-    elif args.dataset=='wikipedia':
-        train_set = JodieDataset('train', dataset_name='wikipedia', all_comms=args.all_comms, data_dir=args.data_dir)
-        test_set = JodieDataset('test', dataset_name='wikipedia', all_comms=args.all_comms, data_dir=args.data_dir)
-        initial_embeddings = np.random.randn (train_set.N_nodes, args.hidden_dim)
-        A_initial = train_set.get_Adjacency()
-    elif args.dataset=='reddit':
-        train_set = JodieDataset('train', dataset_name='reddit', data_dir=args.data_dir)
-        test_set = JodieDataset('test', dataset_name='reddit', data_dir=args.data_dir)
-        initial_embeddings = np.random.randn (train_set.N_nodes, args.hidden_dim)
-        A_initial = train_set.get_Adjacency()
-    elif args.dataset=='synthetic':
-        train_set = SyntheticDataset('train', dataset_name='hawkes', data_dir=args.data_dir)
-        test_set = SyntheticDataset('test', dataset_name='hawkes', data_dir=args.data_dir)
-        initial_embeddings = np.random.randn (train_set.N_nodes, args.hidden_dim)
-        A_initial = train_set.get_Adjacency()
     else:
         raise NotImplementedError(args.dataset)
 
 
     time_bar_initial = np.zeros((train_set.N_nodes, 1)) + train_set.FIRST_DATE.timestamp()
-
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=False)
     test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False)
-
     test_reoccur_dict, test_reoccur_time_ts, test_reoccur_time_hr = get_return_time(test_set)
-
 
     def normalize_td(data_set):
         dic = defaultdict(list)
@@ -395,29 +372,8 @@ if __name__ == '__main__':
 
 
     train_td_mean, train_td_std, train_td_max, train_td_hr_mean, train_td_hr_std, train_td_hr_max = normalize_td(train_set)
-    # train_td_max = 1792267.0
     end_date = test_set.END_DATE
 
-    # model = DyRep(num_nodes=train_set.N_nodes,
-    #               hidden_dim=args.hidden_dim,
-    #               random_state= rnd,
-    #               first_date=train_set.FIRST_DATE,
-    #               end_datetime=end_date,
-    #               num_neg_samples=10,
-    #               num_time_samples=5,
-    #               device=args.device,
-    #               train_td_max=train_td_max,
-    #               all_comms=args.all_comms).to(args.device)
-    # model = DyRepHawkes(num_nodes=train_set.N_nodes,
-    #               hidden_dim=args.hidden_dim,
-    #               random_state= rnd,
-    #               first_date=train_set.FIRST_DATE,
-    #               end_datetime=end_date,
-    #               num_neg_samples=10,
-    #               num_time_samples=5,
-    #               device=args.device,
-    #               train_td_max=train_td_max,
-    #               all_comms=args.all_comms).to(args.device)
     model = DyRepHawkesRe(num_nodes=train_set.N_nodes,
                   hidden_dim=args.hidden_dim,
                   random_state= rnd,
@@ -429,16 +385,11 @@ if __name__ == '__main__':
                   train_td_max=train_td_max,
                   all_comms=args.all_comms).to(args.device)
 
-    if args.dataset in ['wikipedia', 'reddit']:
-        model.min_src_idx, model.max_src_idx = train_set.min_src_idx, train_set.max_src_idx
-        model.min_dst_idx, model.max_dst_idx = train_set.min_dst_idx, train_set.max_dst_idx
-
     print(model)
     print('number of training parameters: %d' %
           np.sum([np.prod(p.size()) if p.requires_grad else 0 for p in model.parameters()]))
 
     params_main = [param for param in model.parameters() if param.requires_grad]
-
     optimizer = optim.Adam(params_main, lr=args.lr, betas=(0.5, 0.999))
     scheduler = lr_scheduler.MultiStepLR(optimizer, args.lr_decay_step, gamma=0.5)
 
@@ -531,12 +482,6 @@ if __name__ == '__main__':
         all_test_auc.append(test_auc)
         print('\nTEST epoch {}/{}, loss={:.3f}, time prediction MAE {}, ap {}, auc{}'.format(
             epoch, args.epochs + 1, test_loss, test_mae, test_ap, test_auc))
-
-        # test_mae, test_loss = test_time_pred(model, test_reoccur_dict, test_reoccur_time_hr)
-        # all_test_mae.append(test_mae)
-        # all_test_loss.append(test_loss)
-        # result = test(model, test_reoccur_dict)
-        print("Test end")
     #
     #     # result = test(model, n_test_batches=None)
     #     # test_MAR.append(np.mean(result[0]['Com']))
@@ -555,18 +500,18 @@ if __name__ == '__main__':
     plt.legend()
     plt.title("DyRep, wiki, training loss")
     plt.subplot(1, 2, 2)
-    plt.plot(np.arange(1, args.epochs + 1), np.array(first_batch), 'r')
+    plt.plot(np.arange(1, args.epochs + 1), np.array(first_batch.detach()), 'r')
     plt.title("DyRep, loss for the first batch for each epoch")
     fig.savefig('dyrepHawkes_social_train.png')
 
     fig = plt.figure(figsize=(18, 5))
     plt.subplot(1, 3, 1)
-    plt.plot(np.arange(1, args.epochs + 1), np.array(all_test_loss), 'k', label='total loss')
+    plt.plot(np.arange(1, args.epochs + 1), np.array(all_test_loss.detach()), 'k', label='total loss')
     plt.title("DyRep, wiki, test loss")
     plt.subplot(1, 3, 2)
-    plt.plot(np.arange(1, args.epochs + 1), np.array(all_test_ap), 'r')
+    plt.plot(np.arange(1, args.epochs + 1), np.array(all_test_ap.detach()), 'r')
     plt.title("DyRep, wiki, test ap")
     plt.subplot(1, 3, 3)
-    plt.plot(np.arange(1, args.epochs + 1), np.array(all_test_mae), 'r')
+    plt.plot(np.arange(1, args.epochs + 1), np.array(all_test_mae.detach()), 'r')
     plt.title("DyRep, wiki, test mae")
     fig.savefig('dyrepHawkes_social_test.png')

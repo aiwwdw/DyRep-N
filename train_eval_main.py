@@ -25,7 +25,6 @@ from synthetic_data_loader import SyntheticDataset
 from utils import *
 from dyrep import DyRep
 from dyrepHawkes import DyRepHawkes
-from dyrepHawkes_re import DyRepHawkesRe
 from tqdm import tqdm
 from collections import defaultdict
 
@@ -418,7 +417,7 @@ if __name__ == '__main__':
     #               device=args.device,
     #               train_td_max=train_td_max,
     #               all_comms=args.all_comms).to(args.device)
-    model = DyRepHawkesRe(num_nodes=train_set.N_nodes,
+    model = DyRepHawkes(num_nodes=train_set.N_nodes,
                   hidden_dim=args.hidden_dim,
                   random_state= rnd,
                   first_date=train_set.FIRST_DATE,
