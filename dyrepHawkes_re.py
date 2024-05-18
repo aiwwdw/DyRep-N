@@ -113,7 +113,13 @@ class DyRepHawkesRe(torch.nn.Module):
         z_all = []
         expected_time = []
         # 모든 training data에 대해서 for문 시행
-       
+        """
+        각 event 별,
+        해당 u,v에 대한
+            임베딩값 저장, 람다 저장, S&A계산,
+        모든 pair에 대한
+            conditional density 저장
+        """
         for it in range(batch_size):
              # event edge 하나씩
             u_it, v_it, et_it, td_it = u_all[it], v_all[it], event_types[it], time_diff[it]
