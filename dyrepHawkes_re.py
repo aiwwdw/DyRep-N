@@ -205,7 +205,7 @@ class DyRepHawkesRe(torch.nn.Module):
                 
                 # Lambda_dict는 리스트 & 비효율적인 코드
                 # 크기를 넘어서면 예전것부터 없앰
-                # Lambda_dict: event 순서에 따
+                # Lambda_dict: event 순서에 따라 u-v엣지를 제외한 이 엣지와 연결되는 모든 엣지에 대한 람다값을 다 더해서 저장.
                 if len(self.time_keys) >= len(self.Lambda_dict):
                     time_keys = np.array(self.time_keys)
                     time_keys[:-1] = time_keys[1:]
@@ -215,6 +215,8 @@ class DyRepHawkesRe(torch.nn.Module):
                 #구해진 idx로 lambda를 더해서 lambda_dict에 저장
                 self.Lambda_dict[len(self.time_keys)] = lambda_uv_pred[idx].sum().detach()
                 self.time_keys.append(time_key)
+
+
                 # test for time prediction
                 if not self.training:
                     t_cur_date = datetime.fromtimestamp(int(t[it]))
@@ -290,7 +292,7 @@ class DyRepHawkesRe(torch.nn.Module):
             ## 6. Update the embedding z
             z_all.append(z_new)
         
-        # training data에 대한 for문이 끝난후
+        # for문이 끝난후 -----------
         self.z = z_new
 
         # time prediction
@@ -502,7 +504,7 @@ class DyRepHawkesRe(torch.nn.Module):
         t_bar_min = torch.min(time_bar[[u, v]]).item()
         if t_bar_min < time_keys_min:
             start_ind_min = 0
-            #노드의 이벤트가 dictionary 저장 전에 일어났따. 
+            #노드의 이벤트가 dictionary 저장 범위 전에 일어났다. 
         elif t_bar_min > time_keys_max:
             # 이벤트가 이 노드들에서는 발생하지 않았다.
             return s_uv
