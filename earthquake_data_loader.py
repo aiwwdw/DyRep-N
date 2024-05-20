@@ -3,7 +3,9 @@ import pandas as pd
 import datetime
 from datetime import datetime
 from data_loader import EventsDataset
-
+import networkx as nx
+import matplotlib.pyplot as plt
+import csv
 
 class EarthquakeDataset(EventsDataset):
 
@@ -14,7 +16,7 @@ class EarthquakeDataset(EventsDataset):
         # self.dataset_name = dataset_name
         self.link_feat = link_feat
 
-        graph_df = pd.read_csv('../result.csv')
+        graph_df = pd.read_csv('result.csv')
         graph_df = graph_df.sort_values('time')
         test_time = np.quantile(graph_df.time, 0.90)
         sources = graph_df.cluster.values
@@ -69,9 +71,10 @@ class EarthquakeDataset(EventsDataset):
             print('warning: Github has only one relation type (FollowEvent), so multirelations are ignored')
         return self.A_initial
 
-    def cluster_to_adj(self, cluster_path="../cluster_assign.csv", adj_path="adj.csv"):
-        clusters = pd.read_csv(cluster_path).to_numpy()
+    def cluster_to_adj(self, cluster_path="cluster_assign.csv", adj_path="adj.csv"):
+        clusters = pd.read_csv(cluster_path,header=None).to_numpy()
         n_cluster = len(clusters)
+        # print(n_cluster)
         adj = np.zeros((n_cluster, n_cluster))
         plate_element = list()
         for plate in range(len(clusters[0])):
@@ -86,4 +89,12 @@ class EarthquakeDataset(EventsDataset):
                     adj[plate_cluster[j]][plate_cluster[i]] = 1
         header = [str(i) for i in range(n_cluster)]
         pd.DataFrame(adj).to_csv(adj_path,  header = header)
+        # G = nx.Graph()
+        # print(adj)
+        # for i in range(len(adj)):
+        #     for j in range(len(adj[i])):
+        #         if adj[i][j] == 1:
+        #             G.add_edge(i+1, j+1)
+        # nx.draw(G, with_labels=True, node_color='lightblue', node_size=500, font_size=16, font_color='black')
+        # plt.show()  
         return adj
