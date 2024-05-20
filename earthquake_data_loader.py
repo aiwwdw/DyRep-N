@@ -7,17 +7,16 @@ from data_loader import EventsDataset
 
 class EarthquakeDataset(EventsDataset):
 
-    def __init__(self, split, dataset_name, data_dir=None, link_feat=False):
+    def __init__(self, split, dataset_name=None, data_dir=None, link_feat=False):
         super(EarthquakeDataset, self).__init__()
 
         self.rnd = np.random.RandomState(1111)
-        self.dataset_name = dataset_name
-
+        # self.dataset_name = dataset_name
         self.link_feat = link_feat
 
-        graph_df = pd.read_csv('./result.csv')
+        graph_df = pd.read_csv('../result.csv')
         graph_df = graph_df.sort_values('time')
-        test_time = np.quantile(graph_df.ts, 0.90)
+        test_time = np.quantile(graph_df.time, 0.90)
         sources = graph_df.cluster.values
         significance = graph_df.significance.values
         magnitudo = graph_df.magnitudo.values
@@ -30,7 +29,6 @@ class EarthquakeDataset(EventsDataset):
         #             visited.add((source,des))
 
         timestamps = graph_df.time.values
-        # milisecond 맞는지 확인할것
         timestamps_date = np.array(list(map(lambda x: datetime.fromtimestamp(int(x / 1000), tz=None), timestamps)))
 
         train_mask = timestamps<=test_time
@@ -45,11 +43,13 @@ class EarthquakeDataset(EventsDataset):
         else:
             raise ValueError('invalid split', split)
 
-        self.FIRST_DATE = datetime.fromtimestamp(0)
+        # self.FIRST_DATE = datetime.fromtimestamp(0)
+        self.FIRST_DATE = timestamps_date[0]
         self.END_DATE = timestamps_date[-1]
 
-        self.N_nodes = max(sources.max())
-
+        self.N_nodes = len(sources)
+        self.time_bar = [self.FIRST_DATE for i in range(self.N_nodes)]
+        
         self.n_events = len(self.all_events)
 
         self.A_initial = self.cluster_to_adj()
@@ -69,14 +69,14 @@ class EarthquakeDataset(EventsDataset):
             print('warning: Github has only one relation type (FollowEvent), so multirelations are ignored')
         return self.A_initial
 
-    def cluster_to_adj(self, cluster_path="cluster_assign.csv", adj_path="adj.csv"):
-        df = pd.read_csv(cluster_path)
-        n_cluster = len(df['cluster'])
+    def cluster_to_adj(self, cluster_path="../cluster_assign.csv", adj_path="adj.csv"):
+        clusters = pd.read_csv(cluster_path).to_numpy()
+        n_cluster = len(clusters)
         adj = np.zeros((n_cluster, n_cluster))
         plate_element = list()
-        for plate in df.columns.values[1:]:
+        for plate in range(len(clusters[0])):
             plate_element.append(list())
-            for cluster_index, in_plate in enumerate(df[plate]):
+            for cluster_index, in_plate in enumerate(clusters.T[plate]):
                 if bool(in_plate):
                     plate_element[-1].append(cluster_index)
         for plate_cluster in plate_element:
