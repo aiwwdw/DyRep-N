@@ -93,9 +93,9 @@ class DyRepNode(torch.nn.Module):
         
         # testing일때, A_pred, surv를 초기화 세팅
         if not self.training:
-            A_pred, surv, lambda_pred = None, None, None
-            A_pred = self.A.new_zeros((batch_size, self.num_nodes, self.num_nodes))
-            surv = self.A.new_zeros((batch_size, self.num_nodes))
+            lambda_all_list, surv_all_list, lambda_pred = None, None, None
+            lambda_all_list = self.A.new_zeros((batch_size, self.num_nodes))
+            surv_all_list = self.A.new_zeros((batch_size, self.num_nodes))
 
         # *** time의 shape 알고 수정 필요
         # *** time을 normalize할 바에, fixed encoding을 하는 방식을 어떨까?
@@ -116,6 +116,10 @@ class DyRepNode(torch.nn.Module):
             input:
             u_it: event node와 neighbor (shape: (1 + degree(u)))
             time_delta_it : delta_u + delta_N(u)
+            time_bar_it: 
+            time_cur_it: 
+            significance_it: 
+            magnitudo_it: 
             """
              # event edge 하나씩
             u_it, time_delta_it, time_bar_it, time_cur_it,significance_it,magnitudo_it = u_all[it], time_delta[it], time_bar[it], time_cur[it],significance[it],magnitudo[it] 
@@ -167,8 +171,10 @@ class DyRepNode(torch.nn.Module):
                 
                 # survival probability 계산 후, 저장
                 if not self.training:
+                    lambda_all_list[it, :] = lambda_all_pred
+                    assert torch.sum(torch.isnan(lambda_all_list[it])) == 0, (it, torch.sum(torch.isnan(lambda_all_list[it])))
                     s_u = self.compute_cond_density(u_it, time_bar_it)
-                    surv[it,u_it] = s_u
+                    surv_all_list[it,:] = s_u
 
                 # *** 어떤 type의 시간을 사용할것인가?
                 # Lambda_dict: 이벤트 일어나는 순서대로 람다 저장(최대 사이즈는 fix) -> survival probability 구할 때 이용
@@ -250,7 +256,7 @@ class DyRepNode(torch.nn.Module):
         lambda_u_neg = self.compute_hawkes_lambda(batch_embeddings_u_neg, ts_diff_neg)
     
         # 리턴값: 이벤트 노드의 람다, neg 노드의 평균, A_pred, surv, 예상시간
-        return lambda_list, lambda_u_neg / self.num_neg_samples, A_pred, surv, expected_time
+        return lambda_list, lambda_u_neg / self.num_neg_samples,lambda_all_list, surv_all_list, expected_time
         
     def compute_hawkes_lambda(self, z_u, td):
         """
@@ -336,57 +342,40 @@ class DyRepNode(torch.nn.Module):
         return z_new
 
     
-    def compute_cond_density(self, u, v, time_bar):
+    def compute_cond_density(self, u, time_bar):
         N = self.num_nodes
-        s_uv = self.Lambda_dict.new_zeros((2, N))
+        surv = self.Lambda_dict.new_zeros((1, N))
 
-        # Lambda_sum는 expected return 같은 느낌인거 같은데
         Lambda_sum = torch.cumsum(self.Lambda_dict.flip(0), 0).flip(0) / len(self.Lambda_dict)
         
         time_keys_min = self.time_keys[0]
         time_keys_max = self.time_keys[-1]
         indices = []
-        l_indices = []
-        t_bar_min = torch.min(time_bar[[u, v]]).item()
-        if t_bar_min < time_keys_min:
+        lambda_indices = []
+        t_bar_u = time_bar[u].item()
+        if t_bar_u < time_keys_min:
             start_ind_min = 0
             #노드의 이벤트가 dictionary 저장 전에 일어났따. 
-        elif t_bar_min > time_keys_max:
+        elif t_bar_u > time_keys_max:
             # 이벤트가 이 노드들에서는 발생하지 않았다.
-            return s_uv
+            return surv
         else:
-            start_ind_min = self.time_keys.index(int(t_bar_min))
-            # 그 한참전에 일어난 노드부터 index시작
+            # 일어난 노드부터 index시작
+            start_ind_min = self.time_keys.index(int(t_bar_u))
         
-        # 각 노드와 다른 모든 노드 간의 가장 최근 이벤트 시간
-        max_pairs = torch.max(torch.cat((time_bar[[u, v]].view(1, 2).expand(N, -1).t().contiguous().view(2 * N, 1),
-                                         time_bar.repeat(2, 1)), dim=1), dim=1)[0].view(2, N).long().data.cpu().numpy()  # 2,N
-
-        # compute cond density for all pairs of u and some i, then of v and some i
-
-        for c, j in enumerate([u, v]):  # range(i + 1, N):
-            for i in range(N):
-                if i == j:
-                    continue
-                # most recent timestamp of either u or v
-                t_bar = max_pairs[c, i]
-
-                if t_bar < time_keys_min:
+        for i in range(N):
+            t_bar = time_bar[i]
+            if t_bar < time_keys_min:
                     start_ind = 0  # it means t_bar is beyond the history we kept, so use maximum period saved
-                elif t_bar > time_keys_max:
-                    continue  # it means t_bar is current event, so there is no history for this pair of nodes
-                else:
-                    # t_bar is somewhere in after time_keys_min
-                    start_ind = self.time_keys.index(t_bar, start_ind_min)
+            elif t_bar > time_keys_max:
+                continue  # it means t_bar is current event, so there is no history for this pair of nodes
+            else:
+                # t_bar is somewhere in after time_keys_min
+                start_ind = self.time_keys.index(t_bar, start_ind_min)
+                lambda_indices.append(start_ind)
+        surv = Lambda_sum[lambda_indices].view(-1,N)
 
-                indices.append((c, i))
-                l_indices.append(start_ind)
-
-        indices = np.array(indices)
-        l_indices = np.array(l_indices)
-        s_uv[indices[:, 0], indices[:, 1]] = Lambda_sum[l_indices]
-
-        return s_uv
+        return surv
 
 
     # def update_S(self, u_it, v_it, lambda_uv_t):
