@@ -12,7 +12,7 @@ class DyRepNode(torch.nn.Module):
         self.batch_update = True
         self.all_comms = all_comms
         self.include_link_features = False
-        
+    
         self.num_nodes = num_nodes
         self.hidden_dim = hidden_dim
         self.random_state = random_state
@@ -45,7 +45,7 @@ class DyRepNode(torch.nn.Module):
             if isinstance(module, Linear):
                 module.reset_parameters()
 
-    def reset_state(self, node_embeddings_initial, A_initial, node_degree_initial, time_bar, resetS=False):
+    def reset_state(self, node_embeddings_initial, A_initial, node_degree_initial, time_bar):
         """
         모델의 상태를 초기화
         main에서 모델 만들고 실행됨
@@ -102,7 +102,7 @@ class DyRepNode(torch.nn.Module):
         # [sw] normalize 하는 이유는 모르겠고, 24,12진법을 10진법으로 변환은 의미가 있을듯
         time_mean = torch.from_numpy(np.array([0, 0, 0, 0])).float().to(self.device).view(1, 1, 4)
         time_sd = torch.from_numpy(np.array([50, 7, 15, 15])).float().to(self.device).view(1, 1, 4)
-        time_diff = (time_diff - time_mean) / time_sd
+        time_delta = (time_delta - time_mean) / time_sd
 
         # 기본 세팅
         lambda_list,  lambda_u_neg = [], []
@@ -328,10 +328,9 @@ class DyRepNode(torch.nn.Module):
         #                             self.W_t(time_delta_it[u_neighborhood]))
         
         z_new[u_neighborhood] = torch.sigmoid(self.W_event_to_neigh(prev_embedding[u_event]) + \
-                            self.W_rec_neigh(prev_embedding[u_neighborhood]) + \
-                            self.W_t(time_delta_it[u_neighborhood].view(len(u_neighborhood),4)))
-
-
+                                  self.W_rec_neigh(prev_embedding[u_neighborhood]) + \
+                                  self.W_t(time_delta_it[u_neighborhood].view(len(u_neighborhood),4)))
+        
         #event node에 대한 update 
         z_new[u_event] = torch.sigmoid(self.W_rec_event(prev_embedding[u_event]) + \
                                   self.W_t(time_delta_it[u_event]))
