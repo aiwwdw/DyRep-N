@@ -58,8 +58,6 @@ class DyRepNode(torch.nn.Module):
         z = np.pad(node_embeddings_initial, ((0, 0), (0, self.hidden_dim - node_embeddings_initial.shape[1])),'constant')
         z = torch.from_numpy(z).float().to(self.device)
         A = torch.from_numpy(A_initial).float().to(self.device) ## *** (num_node, num_node)로 설정해야함 
-        if len(A.shape) == 2:
-            A = A.unsqueeze(2)
         self.register_buffer('z', z)
         self.register_buffer('A', A)
         self.node_degree_global = node_degree_initial ## ***train에는 (n_assoc_type,num_node로) -> (num_node)로 설정해야함
@@ -71,19 +69,22 @@ class DyRepNode(torch.nn.Module):
         assert torch.sum(torch.isnan(A)) == 0, (torch.sum(torch.isnan(A)), A)
 
         self.Lambda_dict = torch.zeros(5000, device=self.device)
-        self.time_keys = []
+        self.time_keys = [] 
 
     def initialize_S_from_A(self):
         S = self.A.new_zeros((self.num_nodes, self.num_nodes))
+        D = torch.sum(self.A, dim=1)
         
-        D = torch.sum(self.A[:,:], dim=1)
         for v in torch.nonzero(D, as_tuple=False):
-            u = torch.nonzero(self.A[v,:].squeeze(), as_tuple=False)
-            S[v,u] = 1. / D[v]
+            u = torch.nonzero(self.A[v, :].squeeze(), as_tuple=False)
+            S[v, u] = 1. / D[v]
         self.S = S
         # Check that values in each row of S add up to 1
-        S = self.S[:, :]
-        assert torch.sum(S[self.A[:, :] == 0]) < 1e-5, torch.sum(S[self.A[:, :] == 0])
+        for row in S:
+            assert torch.isclose(torch.sum(row), torch.tensor(1.0, device=self.device, dtype=torch.float32), atol=1e-4)
+
+        # A의 0인 부분에 대해 S의 값이 작은지 확인
+        assert torch.sum(S[self.A == 0]) < 1e-5, torch.sum(S[self.A == 0])
 
     def forward(self, data):
         u, time_delta, time_bar, time_cur,significance,magnitudo = data[:6]
