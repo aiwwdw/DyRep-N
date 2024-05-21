@@ -99,6 +99,7 @@ class DyRepNode(torch.nn.Module):
 
         # *** time의 shape 알고 수정 필요
         # *** time을 normalize할 바에, fixed encoding을 하는 방식을 어떨까?
+        # [sw] normalize 하는 이유는 모르겠고, 24,12진법을 10진법으로 변환은 의미가 있을듯
         time_mean = torch.from_numpy(np.array([0, 0, 0, 0])).float().to(self.device).view(1, 1, 4)
         time_sd = torch.from_numpy(np.array([50, 7, 15, 15])).float().to(self.device).view(1, 1, 4)
         time_diff = (time_diff - time_mean) / time_sd
@@ -107,7 +108,7 @@ class DyRepNode(torch.nn.Module):
         lambda_list,  lambda_u_neg = [], []
         batch_embeddings_u, batch_embeddings_u_neg = [], []
         ts_diff_neg = []
-        z_all = [] # *** 굳이 직전 임베딩 들고올건데 list까지 써야함?
+        z_prev = self.z # 초기 세팅
         expected_time = []
         # 모든 training data에 대해서 for문 시행
        
@@ -121,7 +122,7 @@ class DyRepNode(torch.nn.Module):
             significance_it: 
             magnitudo_it: 
             """
-             # event edge 하나씩
+            # event edge 하나씩
             u_it, time_delta_it, time_bar_it, time_cur_it,significance_it,magnitudo_it = u_all[it], time_delta[it], time_bar[it], time_cur[it],significance[it],magnitudo[it] 
             u_event = u_it[0]
             u_neighborhood = u_it[1:]
@@ -129,7 +130,8 @@ class DyRepNode(torch.nn.Module):
             time_delta_neighborhood = time_delta_it[1:]
 
             #z는 1차원 배열, z_all은 2차원 배열
-            z_prev = self.z if it == 0 else z_all[it - 1] 
+            # z_prev = self.z if it == 0 else z_all[it - 1] 
+            
 
             ## 1. lambda 구하기
             # batch_update면 다 batch 끝나고 기록된 v,u 임베딩에 대해서 계산
@@ -222,7 +224,7 @@ class DyRepNode(torch.nn.Module):
                     expected_time.append(expectation/self.num_time_samples)
 
             ## 6. Update the embedding z
-            z_all.append(z_new)
+            z_prev = z_new
         
         # training data에 대한 for문이 끝난후
         self.z = z_new
