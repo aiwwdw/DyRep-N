@@ -69,4 +69,5 @@ class EventsDataset(torch.utils.data.Dataset):
         # if self.link_feat:
             # return u, v, time_delta_uv, k, time_bar, time_cur, link_feature
         # else:
-        return impact_nodes, time_delta, time_bar, time_cur,significance,magnitudo
+        #return impact_nodes, time_delta, time_bar, time_cur,significance,magnitudo
+        return impact_nodes[0], time_delta[0], time_bar, time_cur,significance,magnitudo
