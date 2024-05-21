@@ -129,10 +129,6 @@ class DyRepNode(torch.nn.Module):
             time_delta_event = time_delta_it[0]
             time_delta_neighborhood = time_delta_it[1:]
 
-            #z는 1차원 배열, z_all은 2차원 배열
-            # z_prev = self.z if it == 0 else z_all[it - 1] 
-            
-
             ## 1. lambda 구하기
             # batch_update면 다 batch 끝나고 기록된 v,u 임베딩에 대해서 계산
             # 아니면 실시간 람다 계산 및 리스트 저장
@@ -143,7 +139,7 @@ class DyRepNode(torch.nn.Module):
                 lambda_list.append(lambda_u_it)
 
             ## 2. 노드별 embedding 계산
-            z_new = self.update_node_embedding_without_attention(z_prev, u_it, time_delta_it)
+            z_new = self.update_node_embedding_without_attention(z_prev, u_event, u_neighborhood, time_delta_it)
             assert torch.sum(torch.isnan(z_new)) == 0, (torch.sum(torch.isnan(z_new)), z_new, it)
             
 
@@ -293,14 +289,6 @@ class DyRepNode(torch.nn.Module):
     def compute_intensity_lambda(self, z_u):
         """
         주어진 node embedding을 사용하여 event 강도 (lambda)를 계산
-        
-        Args:
-        z_u (torch.Tensor): Source node의 embedding (shape: [batch_size, hidden_dim])
-        z_v (torch.Tensor): Target node의 embedding (shape: [batch_size, hidden_dim])
-        et_uv (torch.Tensor): node u와 v 사이의 event 유형 (shape: [batch_size])
-
-        Returns:
-        torch.Tensor: 주어진 node pair와 event 유형에 대한 계산된 lambda
         """
         # embedding이 올바른 shape을 가지도록 보장
         z_u = z_u.view(-1, self.hidden_dim)
@@ -315,7 +303,7 @@ class DyRepNode(torch.nn.Module):
         Lambda = psi * torch.log(1 + torch.exp(g_psi))
         return Lambda
  
-    def update_node_embedding_without_attention(self, prev_embedding, u_event,u_neighborhood, time_delta_it):
+    def update_node_embedding_without_attention(self, prev_embedding, u_event, u_neighborhoods, time_delta_it):
         """
         주어진 node embedding과 시간 차이를 사용하여 node embedding을 업데이트합니다.
         
@@ -334,9 +322,10 @@ class DyRepNode(torch.nn.Module):
         z_new = prev_embedding.clone()
         
         #neighborhood node에 대한 업데이트
-        z_new[u_neighborhood] = torch.sigmoid(self.W_event_to_neigh(prev_embedding[u_event]) + \
-                                  self.W_rec_neigh(prev_embedding[u_neighborhood]) + \
-                                  self.W_t(time_delta_it[u_neighborhood].view(len(u_neighborhood),4)))
+        for u_neighborhood in u_neighborhoods:
+            z_new[u_neighborhood] = torch.sigmoid(self.W_event_to_neigh(prev_embedding[u_event]) + \
+                                    self.W_rec_neigh(prev_embedding[u_neighborhood]) + \
+                                    self.W_t(time_delta_it[u_neighborhood]))
         
         #event node에 대한 update 
         z_new[u_event] = torch.sigmoid(self.W_rec_event(prev_embedding[u_event]) + \
