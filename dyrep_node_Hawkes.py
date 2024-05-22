@@ -125,8 +125,8 @@ class DyRepNode(torch.nn.Module):
             """
             
             u_event, time_delta_event, time_bar_it, time_cur_it,significance_it,magnitudo_it = u_all[it], time_delta[it], time_bar[it], time_cur[it],significance[it],magnitudo[it] 
-            u_neigh = torch.nonzero(self.A[u_event, :] == 1, as_tuple=True)[0]
-            impact_nodes = torch.tensor(u_event) + u_neigh
+            u_neigh = torch.nonzero(self.A[int(u_event), :] == 1, as_tuple=True)[0]
+            impact_nodes = torch.tensor(int(u_event)) + u_neigh
             time_delta_it = np.zeros((int(1+sum(self.A[int(u_event)])), 1))
 
             for i, k in enumerate(impact_nodes):
@@ -140,13 +140,13 @@ class DyRepNode(torch.nn.Module):
             # batch_update면 다 batch 끝나고 기록된 v,u 임베딩에 대해서 계산
             # 아니면 실시간 람다 계산 및 리스트 저장
             if self.batch_update:
-                batch_embeddings_u.append(z_prev[u_event]) 
+                batch_embeddings_u.append(z_prev[int(u_event)]) 
             else:
                 lambda_u_it = self.compute_intensity_lambda(z_prev[impact_nodes])
                 lambda_list.append(lambda_u_it)
 
             ## 2. 노드별 embedding 계산
-            z_new = self.update_node_embedding_without_attention(z_prev, u_event, u_neigh, time_delta_it[1:])
+            z_new = self.update_node_embedding_without_attention(z_prev, int(u_event), u_neigh, time_delta_it[1:])
             assert torch.sum(torch.isnan(z_new)) == 0, (torch.sum(torch.isnan(z_new)), z_new, it)
             
 
@@ -161,7 +161,7 @@ class DyRepNode(torch.nn.Module):
             # u를 제외한 노드들에 대하여, num_neg_samples 만큼의 노드를 샘플링
             # 샘플링 된 노드에 대하여, time different 저장하기
             # 뒤에서 loss 계산에서 쓰일 예정
-            batch_nodes = np.delete(np.arange(self.num_nodes), [u_event])
+            batch_nodes = np.delete(np.arange(self.num_nodes), [int(u_event)])
             batch_u_neg = self.random_state.choice(batch_nodes, size=self.num_neg_samples,
                                                     replace=len(batch_nodes) < self.num_neg_samples)
             batch_embeddings_u_neg.append(z_prev[batch_u_neg])
@@ -185,7 +185,7 @@ class DyRepNode(torch.nn.Module):
                 # Lambda_dict: 이벤트 일어나는 순서대로 람다 저장(최대 사이즈는 fix) -> survival probability 구할 때 이용
                 time_key = time_cur_it
                 # u,v에 연결할수는 있는 모든 노드 중, u,v를 제거해서 lambda를 계산, 
-                idx = np.delete(np.arange(self.num_nodes), [u_event])
+                idx = np.delete(np.arange(self.num_nodes), [int(u_event)])
                 
                 # 크기를 넘어서면 예전것부터 없앰
                 if len(self.time_keys) >= len(self.Lambda_dict):
@@ -202,14 +202,14 @@ class DyRepNode(torch.nn.Module):
                 if not self.training:
                     t_cur_date = datetime.fromtimestamp(int(time_cur_it))
                     # Use the cur and most recent time
-                    t_prev = datetime.fromtimestamp(int(time_bar_it[u_event]))
+                    t_prev = datetime.fromtimestamp(int(time_bar_it[int(u_event)]))
                     td = t_cur_date - t_prev
                     time_scale_hour = round((td.days*24 + td.seconds/3600),3)
                     surv_allsamples = z_new.new_zeros(self.num_time_samples)
                     factor_samples = 2*self.random_state.rand(self.num_time_samples)
                     sampled_time_scale = time_scale_hour*factor_samples
 
-                    embeddings_u = z_new[u_event].expand(self.num_time_samples, -1)
+                    embeddings_u = z_new[int(u_event)].expand(self.num_time_samples, -1)
                     all_td_c = torch.zeros(self.num_time_samples)
 
                     t_c_n = torch.tensor(list(map(lambda x: int((t_cur_date+timedelta(hours=x)).timestamp()),
@@ -333,13 +333,13 @@ class DyRepNode(torch.nn.Module):
         #     z_new[u_neighborhood] = torch.sigmoid(self.W_event_to_neigh(prev_embedding[u_event]) + \
         #                             self.W_rec_neigh(prev_embedding[u_neighborhood]) + \
         #                             self.W_t(time_delta_it[u_neighborhood]))
-        z_new[u_neighborhood] = torch.sigmoid(self.W_event_to_neigh(prev_embedding[u_event]) + \
+        z_new[u_neighborhood] = torch.sigmoid(self.W_event_to_neigh(prev_embedding[int(u_event)]) + \
                                   self.W_rec_neigh(prev_embedding[u_neighborhood]) + \
                                   self.W_t(time_delta_it))
         
         #event node에 대한 update 
-        z_new[u_event] = torch.sigmoid(self.W_rec_event(prev_embedding[u_event]) + \
-                                  self.W_t(time_delta_it[u_event]))
+        z_new[int(u_event)] = torch.sigmoid(self.W_rec_event(prev_embedding[int(u_event)]) + \
+                                  self.W_t(time_delta_it[int(u_event)]))
         return z_new
 
     
