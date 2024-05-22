@@ -131,7 +131,7 @@ if __name__ == '__main__':
     parser.add_argument('--data_dir', type=str, default='./')
     parser.add_argument('--seed', type=int, default=1111, help='random seed')
     parser.add_argument('--hidden_dim', type=int, default=32, help='hidden layer dimension in DyRep')
-    parser.add_argument('--batch_size', type=int, default=200, help='batch size')
+    parser.add_argument('--batch_size', type=int, default=2000, help='batch size')
     parser.add_argument('--device', type=str, default='cpu', help='cpu or cuda or mps')
     parser.add_argument('--lr', type=float, default=0.0002, help='learning rate')
     parser.add_argument('--lr_decay_step', type=str, default='20', help='number of epochs after which to reduce lr')
@@ -166,7 +166,7 @@ if __name__ == '__main__':
     # 계산이 필요한 환경 세팅
     time_bar_initial = np.zeros((train_set.N_nodes, 1)) + train_set.FIRST_DATE # FIRST_DATE 형식의 (100,1)
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=False)
-    test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False)
+    test_loader = DataLoader(test_set, batch_size=1, shuffle=False)
     
     test_reoccur_time_hr = get_return_time(test_set) #event별 t_bar 구하기 (event수, 1)
     tain_reoccur_time_hr = get_return_time(train_set)

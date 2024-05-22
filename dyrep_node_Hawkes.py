@@ -125,7 +125,6 @@ class DyRepNode(torch.nn.Module):
             """
             
             u_event, time_delta_event, time_bar_it, time_cur_it,significance_it,magnitudo_it = u_all[it], time_delta[it], time_bar[it], time_cur[it],significance[it],magnitudo[it] 
-
             u_event=int(u_event)
             u_neigh = torch.nonzero(self.A[u_event, :] == 1, as_tuple=True)[0]
             impact_nodes = torch.tensor(u_event) + u_neigh
@@ -179,7 +178,7 @@ class DyRepNode(torch.nn.Module):
                 if not self.training:
                     lambda_all_list[it, :] = lambda_all_pred
                     assert torch.sum(torch.isnan(lambda_all_list[it])) == 0, (it, torch.sum(torch.isnan(lambda_all_list[it])))
-                    s_u = self.compute_cond_density(impact_nodes, time_bar_it)
+                    s_u = self.compute_cond_density(u_event, time_bar_it)
                     surv_all_list[it,:] = s_u
 
                 # *** 어떤 type의 시간을 사용할것인가?
