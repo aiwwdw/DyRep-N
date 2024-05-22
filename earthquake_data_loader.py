@@ -59,13 +59,6 @@ class EarthquakeDataset(EventsDataset):
 
         self.A_initial = self.cluster_to_adj()
 
-        # random_source = self.rnd.choice(np.unique(sources), size=500, replace=False)
-        # random_des =self.rnd.choice(np.unique(destinations), size=500, replace=False)
-        #
-        # for i, j  in zip(random_source, random_des):
-        #     self.A_initial[i,j] = 1
-        #     self.A_initial[j,i] = 1
-
     def get_Adjacency(self, multirelations=False):
         if multirelations:
             print('warning: Github has only one relation type (FollowEvent), so multirelations are ignored')
