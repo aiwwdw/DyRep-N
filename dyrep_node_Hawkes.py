@@ -125,9 +125,16 @@ class DyRepNode(torch.nn.Module):
             """
             
             u_event, time_delta_event, time_bar_it, time_cur_it,significance_it,magnitudo_it = u_all[it], time_delta[it], time_bar[it], time_cur[it],significance[it],magnitudo[it] 
+
             u_event=int(u_event)
             u_neigh = torch.nonzero(self.A[u_event, :] == 1, as_tuple=True)[0]
-            impact_nodes = torch.tensor(u_event) + u_neigh
+            
+            # impact_nodes = torch.tensor(u_event) + u_neigh
+
+            u_event_tensor = torch.tensor([u_event], dtype=torch.int64)
+            impact_nodes = torch.cat((u_event_tensor, u_neigh))
+
+            
             time_delta_it = np.zeros((int(1+sum(self.A[int(u_event)])), 1))
             for i, k in enumerate(impact_nodes):
                 # t = datetime.fromtimestamp(int(self.time_bar[int(k)]), tz=self.TZ)
@@ -178,7 +185,7 @@ class DyRepNode(torch.nn.Module):
                 if not self.training:
                     lambda_all_list[it, :] = lambda_all_pred
                     assert torch.sum(torch.isnan(lambda_all_list[it])) == 0, (it, torch.sum(torch.isnan(lambda_all_list[it])))
-                    s_u = self.compute_cond_density(u_event, time_bar_it)
+                    s_u = self.compute_cond_density(impact_nodes, time_bar_it)
                     surv_all_list[it,:] = s_u
 
                 # *** 어떤 type의 시간을 사용할것인가?
@@ -201,21 +208,23 @@ class DyRepNode(torch.nn.Module):
 
                 # test for time prediction
                 if not self.training:
-                    # t_cur_date = datetime.fromtimestamp(int(time_cur_it))
-                    # # Use the cur and most recent time
-                    # t_prev = datetime.fromtimestamp(int(time_bar_it[int(u_event)]))
-                    # td = t_cur_date - t_prev
-                    # time_scale_hour = round((td.days*24 + td.seconds/3600),3)
                     
-                    time_scale_hour = time_cur_it - time_bar_it[int(u_event)]
 
+                    t_cur_date = datetime.fromtimestamp(int(time_cur_it))
+                    # Use the cur and most recent time
+                    t_prev = datetime.fromtimestamp(int(time_bar_it[int(u_event)]))
+                    td = t_cur_date - t_prev
+                    time_scale_hour = round((td.days*24 + td.seconds/3600),3)
                     surv_allsamples = z_new.new_zeros(self.num_time_samples)
                     factor_samples = 2*self.random_state.rand(self.num_time_samples)
                     sampled_time_scale = time_scale_hour*factor_samples
 
                     embeddings_u = z_new[int(u_event)].expand(self.num_time_samples, -1)
                     all_td_c = torch.zeros(self.num_time_samples)
-                    all_td_c = torch.tensor(list(np.cumsum(sampled_time_scale))).to(self.device)
+
+                    t_c_n = torch.tensor(list(map(lambda x: int((t_cur_date+timedelta(hours=x)).timestamp()),
+                                                  np.cumsum(sampled_time_scale)))).to(self.device)
+                    all_td_c = t_c_n - time_cur_it
 
                     all_u_neg_sample = self.random_state.choice(batch_nodes, size=self.num_neg_samples*self.num_time_samples,
                                         replace=len(batch_nodes) < self.num_neg_samples*self.num_time_samples)
@@ -346,41 +355,53 @@ class DyRepNode(torch.nn.Module):
 
     
     def compute_cond_density(self, u, time_bar):
-        N = self.num_nodes
+        # u는 계산해야하는 node list (개수 유동적임)
+        # time_bar는 각 노드별 time_bar (100,1)
+        
+        N = self.num_nodes # 전체 노드 개수 100개
         surv = self.Lambda_dict.new_zeros((1, N))
         #단순 코너케이스
         if not self.time_keys:
             return surv
+        
         Lambda_sum = torch.cumsum(self.Lambda_dict.flip(0), 0).flip(0) / len(self.Lambda_dict)
         
-        time_keys_min = self.time_keys[0]
+        time_keys_min = self.time_keys[0] # 지금 train data 전까지의 train data들의 시간 저장
         time_keys_max = self.time_keys[-1]
-        indices = []
         lambda_indices = []
-        t_bar_u = time_bar[u].item()
-        if t_bar_u < time_keys_min:
-            start_ind_min = 0
-            #노드의 이벤트가 dictionary 저장 전에 일어났따. 
-        elif t_bar_u > time_keys_max:
-            # 이벤트가 이 노드들에서는 발생하지 않았다.
-            return surv
-        else:
-            # 일어난 노드부터 index시작
-            start_ind_min = self.time_keys.index(int(t_bar_u))
         
-        for i in range(N):
-            t_bar = time_bar[i]
-            if t_bar < time_keys_min:
-                    start_ind = 0  # it means t_bar is beyond the history we kept, so use maximum period saved
-            elif t_bar > time_keys_max:
-                continue  # it means t_bar is current event, so there is no history for this pair of nodes
+        t_bar_u = time_bar[u] # 각 node들에 대한 time_bar 리스트
+        
+        start_ind_min = np.zeros((len(u),1))
+        for idx, t_bar_e in enumerate(t_bar_u):
+            t_bar_each = t_bar_e.item()
+            if t_bar_each < time_keys_min:
+                start_ind_min[idx] = 0
+            elif t_bar_each > time_keys_max:
+                start_ind_min[idx] = -1
+                break
             else:
-                # t_bar is somewhere in after time_keys_min
-                start_ind = self.time_keys.index(t_bar, start_ind_min)
-                lambda_indices.append(start_ind)
-        surv = Lambda_sum[lambda_indices].view(-1,N)
+                start_ind_min[idx] = self.time_keys.index(int(t_bar_each))
+        
+        survs = []
+        for idx, u_each in enumerate(u):
+            for i in range(N):
+                t_bar = time_bar[i]
+                if t_bar < time_keys_min:
+                        start_ind = 0  # it means t_bar is beyond the history we kept, so use maximum period saved
+                elif t_bar > time_keys_max:
+                    continue  # it means t_bar is current event, so there is no history for this pair of nodes
+                else:
+                    # t_bar is somewhere in after time_keys_min
+                    if start_ind_min[idx] == -1:
+                        start_ind = -1
+                    else:
+                        start_ind = self.time_keys.index(t_bar, start_ind_min[idx])
+                    lambda_indices.append(start_ind)
+            surv = Lambda_sum[lambda_indices].view(-1,N)
+            survs.append(surv)
 
-        return surv
+        return survs
 
 
     # def update_S(self, u_it, v_it, lambda_uv_t):
