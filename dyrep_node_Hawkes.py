@@ -32,7 +32,7 @@ class DyRepNode(torch.nn.Module):
         self.W_event_to_neigh = Linear(in_features=hidden_dim, out_features=hidden_dim)
         self.W_rec_event = Linear(in_features=hidden_dim, out_features=hidden_dim)
         self.W_rec_neigh = Linear(in_features=hidden_dim, out_features=hidden_dim)
-        self.W_t = Linear(4,hidden_dim)
+        self.W_t = Linear(1,hidden_dim)
 
         self.reset_parameters()
 
@@ -87,10 +87,10 @@ class DyRepNode(torch.nn.Module):
         assert torch.sum(S[self.A == 0]) < 1e-5, torch.sum(S[self.A == 0])
 
     def forward(self, data):
-        u, time_delta, time_bar, time_cur,significance,magnitudo = data[:6]
-        
+        u, time_delta, time_bar, time_cur, significance, magnitudo = data[:6]
         batch_size = len(u)
         u_all = u.data.cpu().numpy()
+        
         
         # testing일때, A_pred, surv를 초기화 세팅
         if not self.training:
@@ -101,8 +101,8 @@ class DyRepNode(torch.nn.Module):
         # *** time의 shape 알고 수정 필요
         # *** time을 normalize할 바에, fixed encoding을 하는 방식을 어떨까?
         # [sw] normalize 하는 이유는 모르겠고, 24,12진법을 10진법으로 변환은 의미가 있을듯
-        time_mean = torch.from_numpy(np.array([0, 0, 0, 0])).float().to(self.device).view(1, 1, 4)
-        time_sd = torch.from_numpy(np.array([50, 7, 15, 15])).float().to(self.device).view(1, 1, 4)
+        time_mean = torch.from_numpy(np.array([0, 0, 0, 0])).float().to(self.device).view(1, 4)
+        time_sd = torch.from_numpy(np.array([50, 7, 15, 15])).float().to(self.device).view(1, 4)
         time_delta = (time_delta - time_mean) / time_sd
 
         # 기본 세팅
@@ -123,12 +123,18 @@ class DyRepNode(torch.nn.Module):
             significance_it: 
             magnitudo_it: 
             """
-            # event edge 하나씩
-            u_it, time_delta_it, time_bar_it, time_cur_it,significance_it,magnitudo_it = u_all[it], time_delta[it], time_bar[it], time_cur[it],significance[it],magnitudo[it] 
-            u_event = u_it[0]
-            u_neighborhood = u_it[1:]
-            time_delta_event = time_delta_it[0]
-            time_delta_neighborhood = time_delta_it[1:]
+            
+            u_event, time_delta_event, time_bar_it, time_cur_it,significance_it,magnitudo_it = u_all[it], time_delta[it], time_bar[it], time_cur[it],significance[it],magnitudo[it] 
+            u_neigh = torch.nonzero(self.A[u_event, :] == 1, as_tuple=True)[0]
+            impact_nodes = torch.tensor(u_event) + u_neigh
+            time_delta_it = np.zeros((int(1+sum(self.A[int(u_event)])), 1))
+
+            for i, k in enumerate(impact_nodes):
+                # t = datetime.fromtimestamp(int(self.time_bar[int(k)]), tz=self.TZ)
+                t = time_bar_it[i]
+                td = time_cur_it - t
+                time_delta_it[i] = td
+            time_delta_it = torch.Tensor(time_delta_it)
 
             ## 1. lambda 구하기
             # batch_update면 다 batch 끝나고 기록된 v,u 임베딩에 대해서 계산
@@ -136,11 +142,11 @@ class DyRepNode(torch.nn.Module):
             if self.batch_update:
                 batch_embeddings_u.append(z_prev[u_event]) 
             else:
-                lambda_u_it = self.compute_intensity_lambda(z_prev[u_it])
+                lambda_u_it = self.compute_intensity_lambda(z_prev[impact_nodes])
                 lambda_list.append(lambda_u_it)
 
             ## 2. 노드별 embedding 계산
-            z_new = self.update_node_embedding_without_attention(z_prev, u_event, u_neighborhood, time_delta_it)
+            z_new = self.update_node_embedding_without_attention(z_prev, u_event, u_neigh, time_delta_it[1:])
             assert torch.sum(torch.isnan(z_new)) == 0, (torch.sum(torch.isnan(z_new)), z_new, it)
             
 
@@ -172,7 +178,7 @@ class DyRepNode(torch.nn.Module):
                 if not self.training:
                     lambda_all_list[it, :] = lambda_all_pred
                     assert torch.sum(torch.isnan(lambda_all_list[it])) == 0, (it, torch.sum(torch.isnan(lambda_all_list[it])))
-                    s_u = self.compute_cond_density(u_it, time_bar_it)
+                    s_u = self.compute_cond_density(impact_nodes, time_bar_it)
                     surv_all_list[it,:] = s_u
 
                 # *** 어떤 type의 시간을 사용할것인가?
@@ -327,10 +333,9 @@ class DyRepNode(torch.nn.Module):
         #     z_new[u_neighborhood] = torch.sigmoid(self.W_event_to_neigh(prev_embedding[u_event]) + \
         #                             self.W_rec_neigh(prev_embedding[u_neighborhood]) + \
         #                             self.W_t(time_delta_it[u_neighborhood]))
-        
         z_new[u_neighborhood] = torch.sigmoid(self.W_event_to_neigh(prev_embedding[u_event]) + \
                                   self.W_rec_neigh(prev_embedding[u_neighborhood]) + \
-                                  self.W_t(time_delta_it[u_neighborhood].view(len(u_neighborhood),4)))
+                                  self.W_t(time_delta_it))
         
         #event node에 대한 update 
         z_new[u_event] = torch.sigmoid(self.W_rec_event(prev_embedding[u_event]) + \
