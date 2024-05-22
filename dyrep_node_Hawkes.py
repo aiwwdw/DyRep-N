@@ -74,15 +74,15 @@ class DyRepNode(torch.nn.Module):
     def initialize_S_from_A(self):
         S = self.A.new_zeros((self.num_nodes, self.num_nodes))
         D = torch.sum(self.A, dim=1)
-        
         for v in torch.nonzero(D, as_tuple=False):
             u = torch.nonzero(self.A[v, :].squeeze(), as_tuple=False)
-            S[v, u] = 1. / D[v]
+            
+            S[v, u] = 1. / D[v][0]
         self.S = S
         # Check that values in each row of S add up to 1
-        for row in S:
+        for idx, row in enumerate(S):
             assert torch.isclose(torch.sum(row), torch.tensor(1.0, device=self.device, dtype=torch.float32), atol=1e-4)
-
+        
         # A의 0인 부분에 대해 S의 값이 작은지 확인
         assert torch.sum(S[self.A == 0]) < 1e-5, torch.sum(S[self.A == 0])
 

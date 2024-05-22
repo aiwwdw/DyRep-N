@@ -18,10 +18,8 @@ import matplotlib.pyplot as plt
 
 from torch import autograd
 
-from jodie_data_loader import JodieDataset
-from social_data_loader import SocialEvolutionDataset
-from github_data_loader import GithubDataset
-from synthetic_data_loader import SyntheticDataset
+from earthquake_data_loader import EarthquakeDataset
+
 from utils import *
 from dyrep import DyRep
 from dyrepHawkes import DyRepHawkes
@@ -32,39 +30,32 @@ from collections import defaultdict
 
 def get_return_time(data_set):
     reoccur_dict = {}
-    for n1,n2,r,t in data_set.all_events:
-        et = 0 if r in data_set.assoc_types else 1
-        key = (n1,n2,et) if n1<=n2 else (n2,n1,et)
-        ts = t.timestamp()
-        if key not in reoccur_dict:
-            reoccur_dict[key] = [ts]
-        elif ts ==  reoccur_dict[key][-1]:
-            continue
-        else:
-            reoccur_dict[key].append(ts)
-    count = 0
-    for event in reoccur_dict:
-        occ = reoccur_dict[event]
-        if len(occ) > 1:
-            count += len(occ)-1
-    print("Number of repeat events in the test set: {}".format(count))
-    reoccur_time_ts = np.zeros(len(data_set.all_events))
+
+    # sources,timestamps_date,significance,magnitudo
+    for sources,timestamps_date,significance,magnitudo in data_set.all_events:
+        if sources not in reoccur_dict:
+            reoccur_dict[sources] = [timestamps_date]
+        elif timestamps_date != reoccur_dict[sources][-1]:
+            reoccur_dict[sources].append(timestamps_date)
+
     reoccur_time_hr = np.zeros(len(data_set.all_events))
-    for idx, (n1,n2,r,t) in enumerate(data_set.all_events):
-        et = 0 if r in data_set.assoc_types else 1
-        key = (n1,n2,et) if n1<=n2 else (n2,n1,et)
-        val = reoccur_dict[key]
-        if len(val) == 1 or t.timestamp()==val[-1]:
-            reoccur_time_ts[idx] = data_set.END_DATE.timestamp()
-            reoccur_time = data_set.END_DATE - t
-            reoccur_time_hr[idx] = round((reoccur_time.days*24 + reoccur_time.seconds/3600),3)
-        else:
-            reoccur_time_ts[idx] = val[val.index(t.timestamp()) + 1]
-            reoccur_time = datetime.fromtimestamp(int(reoccur_time_ts[idx])) - t
-            reoccur_time_hr[idx] = round((reoccur_time.days*24 + reoccur_time.seconds/3600),3)
-    return reoccur_dict, reoccur_time_ts, reoccur_time_hr
+    for idx, (sources,timestamps_date,significance,magnitudo) in enumerate(data_set.all_events):
+        
+        val = reoccur_dict[sources]
+        
+        if val.index(timestamps_date) != len(val)-1 and len(val) != 1:
+            reoccur_time = val[val.index(timestamps_date) + 1] - timestamps_date
+        else:  
+            reoccur_time = data_set.END_DATE - timestamps_date
+        # reoccur_time = datetime.fromtimestamp(reoccur_time) 
+        # reoccur_time_hr[idx] = round((reoccur_time.day*24 + reoccur_time.second/3600),3)
+        
+        reoccur_time_hr[idx] = reoccur_time
+    
+    return reoccur_time_hr
 
 def mae_error(u, v, k, time_cur, expected_time, reoccur_dict, end_date):
+
     u, v, time_cur = u.data.cpu().numpy(), v.data.cpu().numpy(), time_cur.data.cpu().numpy()
     et = (k>0).int().data.cpu().numpy()
     batch_predict_time = []
@@ -336,22 +327,23 @@ if __name__ == '__main__':
 
     ## dataset 받기
     # *** data받아지는 과정 봐야함
-    data = SocialEvolutionDataset.load_data("./SocialEvolution", 0.8)
-    train_set = SocialEvolutionDataset(data['initial_embeddings'], data['train'], 'CloseFriend')
-    test_set = SocialEvolutionDataset(data['initial_embeddings'], data['test'], 'CloseFriend', data_train=data['train'])
-    initial_embeddings = data['initial_embeddings'].copy()
-    # social_data_loader에 클래스 내 함수로 존재
-    A_initial = train_set.get_Adjacency()[0]
-    time_bar_initial = np.zeros((train_set.N_nodes, 1)) + train_set.FIRST_DATE.timestamp()
+
+    train_set = EarthquakeDataset("train")
+    test_set = EarthquakeDataset("test")
+    
+    initial_embeddings = np.random.randn(train_set.N_nodes, args.hidden_dim)
+    A_initial = train_set.get_Adjacency()
+    
+    time_bar_initial = np.zeros((train_set.N_nodes, 1)) + train_set.FIRST_DATE
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=False)
     test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False)
-    test_reoccur_dict, test_reoccur_time_ts, test_reoccur_time_hr = get_return_time(test_set)
-
+    test_reoccur_time_hr = get_return_time(test_set)
+    
     # train_td_max 구하기
     dic = defaultdict(list)
     for src, dst, _, t in train_set.all_events:
-        dic[src].append(t.timestamp())
-        dic[dst].append(t.timestamp())
+        dic[src].append(t)
+        dic[dst].append(t)
     all_diff = []
     for k, v in dic.items():
         ts = np.array(v)
@@ -360,8 +352,7 @@ if __name__ == '__main__':
     all_diff = np.concatenate(all_diff)
     train_td_max = all_diff.max()
     end_date = test_set.END_DATE
-
-
+    
     model = DyRepNode(num_nodes=train_set.N_nodes,
                   hidden_dim=args.hidden_dim,
                   random_state= rnd,
@@ -405,8 +396,6 @@ if __name__ == '__main__':
         model.train()
 
         node_degree_initial = []
-
-        assert isinstance(A_initial, list), "Error: A_initial is not a list."
         node_degree_initial.append(np.sum(A_initial, axis=0))
         time_bar = copy.deepcopy(time_bar_initial)
         model.reset_state(node_embeddings_initial=initial_embeddings,
@@ -422,6 +411,7 @@ if __name__ == '__main__':
         
         # 각 training data별 학습 과정
         #tqdm이 막대그래프 표시하는 역할
+        
         for batch_idx, data_batch in enumerate(tqdm(train_loader)):
             # backprop 전에 기울기를 초기화
             optimizer.zero_grad()
@@ -450,6 +440,7 @@ if __name__ == '__main__':
             model.S = model.S.detach()
             
             
+            print("@@@@@@4")
 
             if batch_idx == 0:
                 print("Training epoch {}, batch {}/{}, loss {}, loss_lambda {}, loss_surv {}".format(

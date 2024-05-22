@@ -6,6 +6,7 @@ from data_loader import EventsDataset
 import networkx as nx
 import matplotlib.pyplot as plt
 import csv
+from collections import Counter
 
 class EarthquakeDataset(EventsDataset):
 
@@ -31,12 +32,13 @@ class EarthquakeDataset(EventsDataset):
         #             visited.add((source,des))
 
         timestamps = graph_df.time.values
-        timestamps_date = np.array(list(map(lambda x: datetime.fromtimestamp(int(x / 1000), tz=None), timestamps)))
-
+        timestamps_date = np.array(list(map(lambda x: datetime.fromtimestamp(int(x/1000), tz=None), timestamps)))
+        # timestamps_date 리턴 한번 받아보기
         train_mask = timestamps<=test_time
         test_mask = timestamps>test_time
-
-        all_events = list(zip(sources,timestamps_date,significance,magnitudo ))
+        
+        # all_events = list(zip(sources,timestamps_date,significance,magnitudo ))
+        all_events = list(zip(sources,timestamps,significance,magnitudo ))
 
         if split == 'train':
             self.all_events = np.array(all_events)[train_mask].tolist()
@@ -46,10 +48,11 @@ class EarthquakeDataset(EventsDataset):
             raise ValueError('invalid split', split)
 
         # self.FIRST_DATE = datetime.fromtimestamp(0)
-        self.FIRST_DATE = timestamps_date[0]
-        self.END_DATE = timestamps_date[-1]
+        self.FIRST_DATE = timestamps[0]
+        self.END_DATE = timestamps[-1]
+        series = set(sources)
+        self.N_nodes = len(series)
 
-        self.N_nodes = len(sources)
         self.time_bar = [self.FIRST_DATE for i in range(self.N_nodes)]
         
         self.n_events = len(self.all_events)
@@ -62,9 +65,6 @@ class EarthquakeDataset(EventsDataset):
         # for i, j  in zip(random_source, random_des):
         #     self.A_initial[i,j] = 1
         #     self.A_initial[j,i] = 1
-
-        print('\nA_initial', np.sum(self.A_initial))
-
 
     def get_Adjacency(self, multirelations=False):
         if multirelations:

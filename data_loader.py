@@ -43,13 +43,10 @@ class EventsDataset(torch.utils.data.Dataset):
         for i, k in enumerate(impact_nodes):
             # t = datetime.fromtimestamp(int(self.time_bar[int(k)]), tz=self.TZ)
             t = self.time_bar[int(k)]
-            if t.toordinal() >= self.FIRST_DATE.toordinal():  # assume no events before FIRST_DATE
+            # if t.toordinal() >= self.FIRST_DATE.toordinal():  # assume no events before FIRST_DATE
+            if t >= self.FIRST_DATE:  # assume no events before FIRST_DATE
                 td = time_cur - t
-                time_delta[i] = np.array([td.days,  # total number of days, still can be a big number
-                                                td.seconds // 3600,  # hours, max 24
-                                                (td.seconds // 60) % 60,  # minutes, max 60
-                                                td.seconds % 60],  # seconds, max 60
-                                            np.float64)
+                time_delta[i] = np.array([td],np.float64)
             else:
                 raise ValueError('unexpected result', t, self.FIRST_DATE)
             
@@ -58,10 +55,10 @@ class EventsDataset(torch.utils.data.Dataset):
             # self.time_bar[int(k)] = time_cur.timestamp()  # last time stamp for nodes u and v
             
         # sanity checks
-        assert np.float64(time_cur.timestamp()) == time_cur.timestamp(), (
-        np.float64(time_cur.timestamp()), time_cur.timestamp())
-        time_cur = np.float64(time_cur.timestamp())
-        time_bar = np.array(list(map(lambda x: x.timestamp(), time_bar)))
+        # assert np.float64(time_cur.timestamp()) == time_cur.timestamp(), (
+        # np.float64(time_cur.timestamp()), time_cur.timestamp())
+        time_cur = np.float64(time_cur)
+        time_bar = np.array(list(time_bar))
         time_bar = time_bar.astype(np.float64)
         time_cur = torch.from_numpy(np.array([time_cur])).double()
         assert time_bar.max() <= time_cur, (time_bar.max(), time_cur)
