@@ -201,21 +201,21 @@ class DyRepNode(torch.nn.Module):
 
                 # test for time prediction
                 if not self.training:
-                    t_cur_date = datetime.fromtimestamp(int(time_cur_it))
-                    # Use the cur and most recent time
-                    t_prev = datetime.fromtimestamp(int(time_bar_it[int(u_event)]))
-                    td = t_cur_date - t_prev
-                    time_scale_hour = round((td.days*24 + td.seconds/3600),3)
+                    # t_cur_date = datetime.fromtimestamp(int(time_cur_it))
+                    # # Use the cur and most recent time
+                    # t_prev = datetime.fromtimestamp(int(time_bar_it[int(u_event)]))
+                    # td = t_cur_date - t_prev
+                    # time_scale_hour = round((td.days*24 + td.seconds/3600),3)
+                    
+                    time_scale_hour = time_cur_it - time_bar_it[int(u_event)]
+
                     surv_allsamples = z_new.new_zeros(self.num_time_samples)
                     factor_samples = 2*self.random_state.rand(self.num_time_samples)
                     sampled_time_scale = time_scale_hour*factor_samples
 
                     embeddings_u = z_new[int(u_event)].expand(self.num_time_samples, -1)
                     all_td_c = torch.zeros(self.num_time_samples)
-
-                    t_c_n = torch.tensor(list(map(lambda x: int((t_cur_date+timedelta(hours=x)).timestamp()),
-                                                  np.cumsum(sampled_time_scale)))).to(self.device)
-                    all_td_c = t_c_n - time_cur_it
+                    all_td_c = torch.tensor(list(np.cumsum(sampled_time_scale))).to(self.device)
 
                     all_u_neg_sample = self.random_state.choice(batch_nodes, size=self.num_neg_samples*self.num_time_samples,
                                         replace=len(batch_nodes) < self.num_neg_samples*self.num_time_samples)
