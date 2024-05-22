@@ -90,11 +90,11 @@ class DyRepNode(torch.nn.Module):
         u, time_delta, time_bar, time_cur, significance, magnitudo = data[:6]
         batch_size = len(u)
         u_all = u.data.cpu().numpy()
-        
+        lambda_all_list, surv_all_list, lambda_pred = None, None, None
         
         # testing일때, A_pred, surv를 초기화 세팅
         if not self.training:
-            lambda_all_list, surv_all_list, lambda_pred = None, None, None
+            
             lambda_all_list = self.A.new_zeros((batch_size, self.num_nodes))
             surv_all_list = self.A.new_zeros((batch_size, self.num_nodes))
 
@@ -125,10 +125,11 @@ class DyRepNode(torch.nn.Module):
             """
             
             u_event, time_delta_event, time_bar_it, time_cur_it,significance_it,magnitudo_it = u_all[it], time_delta[it], time_bar[it], time_cur[it],significance[it],magnitudo[it] 
-            u_neigh = torch.nonzero(self.A[int(u_event), :] == 1, as_tuple=True)[0]
-            impact_nodes = torch.tensor(int(u_event)) + u_neigh
-            time_delta_it = np.zeros((int(1+sum(self.A[int(u_event)])), 1))
 
+            u_event=int(u_event)
+            u_neigh = torch.nonzero(self.A[u_event, :] == 1, as_tuple=True)[0]
+            impact_nodes = torch.tensor(u_event) + u_neigh
+            time_delta_it = np.zeros((int(1+sum(self.A[int(u_event)])), 1))
             for i, k in enumerate(impact_nodes):
                 # t = datetime.fromtimestamp(int(self.time_bar[int(k)]), tz=self.TZ)
                 t = time_bar_it[i]
@@ -146,7 +147,8 @@ class DyRepNode(torch.nn.Module):
                 lambda_list.append(lambda_u_it)
 
             ## 2. 노드별 embedding 계산
-            z_new = self.update_node_embedding_without_attention(z_prev, int(u_event), u_neigh, time_delta_it[1:])
+
+            z_new = self.update_node_embedding_without_attention(z_prev, u_event, u_neigh, time_delta_it)
             assert torch.sum(torch.isnan(z_new)) == 0, (torch.sum(torch.isnan(z_new)), z_new, it)
             
 
@@ -173,7 +175,6 @@ class DyRepNode(torch.nn.Module):
                 # 모든 노드에 대한 hawkes lambda 계산하기
                 time_diff_pred = time_cur_it - time_bar_it
                 lambda_all_pred = self.compute_hawkes_lambda(z_prev, time_diff_pred)
-                
                 # survival probability 계산 후, 저장
                 if not self.training:
                     lambda_all_list[it, :] = lambda_all_pred
@@ -197,6 +198,7 @@ class DyRepNode(torch.nn.Module):
                 #발생하지 않은 노드들의 lambda를 더해서 lambda_dict에 저장
                 self.Lambda_dict[len(self.time_keys)] = lambda_all_pred[idx].sum().detach()
                 self.time_keys.append(time_key)
+
 
                 # test for time prediction
                 if not self.training:
@@ -290,7 +292,8 @@ class DyRepNode(torch.nn.Module):
         g_psi = torch.clamp(g/(psi + 1e-7), -75, 75) # avoid overflow
         
         # Hawkes 프로세스 강도 (Lambda) 계산, 뒷부분이 hawkes를 의미
-        Lambda = psi * torch.log(1 + torch.exp(g_psi)) + alpha*torch.exp(-w_t*(td/self.train_td_max))
+        Lambda = psi * torch.log(1 + torch.exp(g_psi))
+        #Lambda = psi * torch.log(1 + torch.exp(g_psi)) + alpha*torch.exp(-w_t*(td/self.train_td_max))
         return Lambda
 
     def compute_intensity_lambda(self, z_u):
@@ -335,18 +338,20 @@ class DyRepNode(torch.nn.Module):
         #                             self.W_t(time_delta_it[u_neighborhood]))
         z_new[u_neighborhood] = torch.sigmoid(self.W_event_to_neigh(prev_embedding[int(u_event)]) + \
                                   self.W_rec_neigh(prev_embedding[u_neighborhood]) + \
-                                  self.W_t(time_delta_it))
+                                  self.W_t(time_delta_it[1:]))
         
         #event node에 대한 update 
-        z_new[int(u_event)] = torch.sigmoid(self.W_rec_event(prev_embedding[int(u_event)]) + \
-                                  self.W_t(time_delta_it[int(u_event)]))
+        z_new[u_event] = torch.sigmoid(self.W_rec_event(prev_embedding[u_event]) + \
+                                  self.W_t(time_delta_it[0]))
         return z_new
 
     
     def compute_cond_density(self, u, time_bar):
         N = self.num_nodes
         surv = self.Lambda_dict.new_zeros((1, N))
-
+        #단순 코너케이스
+        if not self.time_keys:
+            return surv
         Lambda_sum = torch.cumsum(self.Lambda_dict.flip(0), 0).flip(0) / len(self.Lambda_dict)
         
         time_keys_min = self.time_keys[0]
