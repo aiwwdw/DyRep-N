@@ -30,25 +30,19 @@ from collections import defaultdict
 
 def get_return_time(data_set):
     reoccur_dict = {}
-    
-    for sources,timestamps_date,significance,magnitudo in data_set.all_events:
+    for sources,timestamps_date, _, _ in data_set.all_events:
         if sources not in reoccur_dict:
             reoccur_dict[sources] = [timestamps_date]
         elif timestamps_date != reoccur_dict[sources][-1]:
             reoccur_dict[sources].append(timestamps_date)
-
     reoccur_time_hr = np.zeros(len(data_set.all_events))
+
     for idx, (sources,timestamps_date,significance,magnitudo) in enumerate(data_set.all_events):
-        
         val = reoccur_dict[sources]
-        
-        if val.index(timestamps_date) != len(val)-1 and len(val) != 1:
+        if val.index(timestamps_date) < len(val)-1:
             reoccur_time = val[val.index(timestamps_date) +1] - timestamps_date
         else:  
             reoccur_time = data_set.END_DATE - timestamps_date
-        # reoccur_time = datetime.fromtimestamp(reoccur_time) 
-        # reoccur_time_hr[idx] = round((reoccur_time.day*24 + reoccur_time.second/3600),3)
-        
         reoccur_time_hr[idx] = reoccur_time
     
     return reoccur_time_hr
@@ -86,6 +80,8 @@ def MAE(expected_time_hour, batch_ts_true, t_cur):
     batch_res = list(zip(expected_time_hour, batch_time_hour_true))
     return batch_ae, batch_res
 
+# def train_all(model, return_time_hr):
+    
 def test_all(model, return_time_hr):
     model.eval()
     loss = 0
@@ -129,8 +125,8 @@ def test_all(model, return_time_hr):
 
 
 if __name__ == '__main__':
+
     ## 기본적인 입력 parameter 세팅
-    # argument hyperparmeter setting
     parser = argparse.ArgumentParser(description='DyRep Model Training Parameters')
     parser.add_argument('--data_dir', type=str, default='./')
     parser.add_argument('--seed', type=int, default=1111, help='random seed')
@@ -145,71 +141,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     args.lr_decay_step = list(map(int, args.lr_decay_step.split(',')))
     
-    np.random.seed(args.seed)
-    rnd = np.random.RandomState(args.seed)
-    #cPyTorch의 cuDNN 백엔드 설정
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = True
-    torch.manual_seed(args.seed)
-
-    ## dataset 받기
-    # *** data받아지는 과정 봐야함
-
-    train_set = EarthquakeDataset("train")
-    test_set = EarthquakeDataset("test")
-    
-    initial_embeddings = np.random.randn(train_set.N_nodes, args.hidden_dim) # (100, hidden_dim)
-    
-    A_initial = train_set.get_Adjacency() # csv 파일 통해서 구하기
-    
-    time_bar_initial = np.zeros((train_set.N_nodes, 1)) + train_set.FIRST_DATE # FIRST_DATE 형식의 (100,1)
-    train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=False)
-    test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False)
-    test_reoccur_time_hr = get_return_time(test_set)
-    
-    # train_td_max 구하기
-    dic = defaultdict(list)
-    for src, dst, _, t in train_set.all_events:
-        dic[src].append(t)
-        dic[dst].append(t)
-    all_diff = []
-    for k, v in dic.items():
-        ts = np.array(v)
-        td = np.diff(ts)
-        all_diff.append(td)
-    all_diff = np.concatenate(all_diff)
-    train_td_max = all_diff.max()
-    end_date = test_set.END_DATE
-    
-    model = DyRepNode(num_nodes=train_set.N_nodes,
-                  hidden_dim=args.hidden_dim,
-                  random_state= rnd,
-                  first_date=train_set.FIRST_DATE,
-                  end_datetime=end_date,
-                  num_neg_samples=10,
-                  num_time_samples=5,
-                  device=args.device,
-                  all_comms=args.all_comms,
-                  train_td_max=train_td_max
-                  ).to(args.device)
-    # learning parameter 설정
-    params_main = [param for param in model.parameters() if param.requires_grad]
-    optimizer = optim.Adam(params_main, lr=args.lr, betas=(0.5, 0.999))
-    scheduler = lr_scheduler.MultiStepLR(optimizer, args.lr_decay_step, gamma=0.5)
-    
-    # 모델 정보
-    # print(model)
-    # print('number of training parameters: %d' %
-    #       np.sum([np.prod(p.size()) if p.requires_grad else 0 for p in model.parameters()]))
-    # for arg in vars(args):
-    #     print(arg, getattr(args, arg))
-    # dt = datetime.now()
-    # print('start time:', dt)
-    # experiment_ID = '%s_%06d' % (platform.node(), dt.microsecond)
-    # print('experiment_ID: ', experiment_ID)
-
-
-    # 변수 설정
+    # argument 외 변수 설정
     total_losses = []
     total_losses_lambda, total_losses_surv = [], []
     test_MAR, test_HITS10, test_loss = [], [], []
@@ -217,69 +149,102 @@ if __name__ == '__main__':
     all_test_ap, all_test_auc = [], []
     first_batch = []
 
-    for epoch in range(1, args.epochs + 1):
-        # def reset_state(self, node_embeddings_initial, A_initial, node_degree_initial, time_bar, resetS=False):
-        # Reinitialize node embeddings and adjacency matrices, but keep the model parameters intact
-        
-        model.train()
+    #데이터 불러오기
+    train_set = EarthquakeDataset("train")
+    test_set = EarthquakeDataset("test")
+    A_initial = train_set.get_Adjacency() # csv 파일 통해서 구하기
+    
+    #환경 세팅
+    np.random.seed(args.seed)
+    rnd = np.random.RandomState(args.seed)
+    #cPyTorch의 cuDNN 백엔드 설정
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = True
+    torch.manual_seed(args.seed)
+    initial_embeddings = np.random.randn(train_set.N_nodes, args.hidden_dim) # (100, hidden_dim)
+    
+    # 계산이 필요한 환경 세팅
+    time_bar_initial = np.zeros((train_set.N_nodes, 1)) + train_set.FIRST_DATE # FIRST_DATE 형식의 (100,1)
+    train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=False)
+    test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False)
+    
+    test_reoccur_time_hr = get_return_time(test_set) #event별 t_bar 구하기 (event수, 1)
+    tain_reoccur_time_hr = get_return_time(train_set)
+    train_td_max = tain_reoccur_time_hr.max()
 
+    # 모델 설정
+    model = DyRepNode(num_nodes=train_set.N_nodes,
+                  hidden_dim=args.hidden_dim,
+                  random_state= rnd,
+                  first_date=train_set.FIRST_DATE,
+                  end_datetime=test_set.END_DATE,
+                  num_neg_samples=10,
+                  num_time_samples=5,
+                  device=args.device,
+                  all_comms=args.all_comms,
+                  train_td_max=train_td_max
+                  ).to(args.device)
+    
+    # learning parameter 설정
+    params_main = [param for param in model.parameters() if param.requires_grad]
+    optimizer = optim.Adam(params_main, lr=args.lr, betas=(0.5, 0.999))
+    scheduler = lr_scheduler.MultiStepLR(optimizer, args.lr_decay_step, gamma=0.5)
+    
+    # Training Part
+    for epoch in range(1, args.epochs + 1):
+        
+        # 기타 변수 세팅
+        start = time.time()
+        total_loss = 0
+        total_loss_lambda, total_loss_surv = 0, 0
         node_degree_initial = []
         node_degree_initial.append(np.sum(A_initial, axis=0))
+        
         time_bar = copy.deepcopy(time_bar_initial)
+        train_loader.dataset.time_bar = time_bar
+        test_loader.dataset.time_bar = time_bar
+
+        # 모델 세팅
+        model.train() # train 환경으로 model 설정
         model.reset_state(node_embeddings_initial=initial_embeddings,
                           A_initial=A_initial,
                           node_degree_initial=node_degree_initial,
                           time_bar=time_bar)
-        train_loader.dataset.time_bar = time_bar
-        test_loader.dataset.time_bar = time_bar
 
-        start = time.time()
-        total_loss = 0
-        total_loss_lambda, total_loss_surv = 0, 0
-        
-        # 각 training data별 학습 과정
-        #tqdm이 막대그래프 표시하는 역할
-        
-        for batch_idx, data_batch in enumerate(tqdm(train_loader)):
-            # backprop 전에 기울기를 초기화
+    
+        # Batch_size 만큼의 event 한번에 계산
+        for batch_idx, data_batch in enumerate(tqdm(train_loader)): #tqdm이 막대그래프 표시하는 역할
+            
+            
             optimizer.zero_grad()
-            # 데이터 type 확정하고, gpu에 올려놓기
 
-            print("Check:",len(data_batch[0][0]))
+            # print("Check:",len(data_batch[0][0]))
 
             data_batch[0] = data_batch[0].float().to(args.device)
             data_batch[1] = data_batch[1].float().to(args.device)
             data_batch[2] = data_batch[2].double().to(args.device)
             data_batch[3] = data_batch[3].double()# no need of GPU
-            # if args.f:
-            #     data_batch[6] = data_batch[6].float().to(args.device)
             
-            # 모델 forward 돌리고 역전파 생성
+            
             # 단순히 log(pos)- neg 형태의 기울기 반영
-            output = model(data_batch)
+            output = model(data_batch) # 모델 forward 돌리고 역전파 생성
             losses = [-torch.sum(torch.log(output[0]) + 1e-10), torch.sum(output[1])]
             loss = torch.sum(torch.stack(losses))/args.batch_size
+            
             loss.backward()
-
-            # TODO: test the clip value  for model paramters
             nn.utils.clip_grad_value_(model.parameters(), 100)
-
             optimizer.step()
-            # 기울기 값에 제한을 두는 과정
             model.psi.data = torch.clamp(model.psi.data, 1e-1, 1e+3)
+            
             time_iter = time.time() - start
             model.z = model.z.detach()
             model.S = model.S.detach()
             
-            
-            print("@@@@@@4")
-
-            if batch_idx == 0:
-                print("Training epoch {}, batch {}/{}, loss {}, loss_lambda {}, loss_surv {}".format(
-                    epoch, batch_idx+1, len(train_loader), loss, losses[0]/args.batch_size, losses[1]/args.batch_size))
-            
+            # 데이터 기록
             if batch_idx == 0:
                 first_batch.append(loss)
+                print("Training epoch {}, batch {}/{}, loss {}, loss_lambda {}, loss_surv {}".format(
+                    epoch, batch_idx+1, len(train_loader), loss, losses[0]/args.batch_size, losses[1]/args.batch_size))
             total_loss += loss*args.batch_size
             total_loss_lambda += losses[0]
             total_loss_surv += losses[1]
@@ -307,11 +272,11 @@ if __name__ == '__main__':
         print('\nTEST epoch {}/{}, loss={:.3f}, time prediction MAE {}, ap {}, auc{}'.format(
             epoch, args.epochs + 1, test_loss, test_mae, test_ap, test_auc))
     
+    # visualization codes
 
     # 무시해도 됨 - numpy 관련 에러 수정(지우지는 마삼)
     detached_tensors = [tensor.detach() for tensor in first_batch]
     detached_arrays = [tensor.numpy() for tensor in detached_tensors]
-
     fig = plt.figure(figsize=(12, 5))
     plt.subplot(1, 2, 1)
     plt.plot(np.arange(1, args.epochs + 1), np.array(total_losses), 'k', label='total loss')
@@ -335,3 +300,17 @@ if __name__ == '__main__':
     plt.plot(np.arange(1, args.epochs + 1), np.array(all_test_mae), 'r')
     plt.title("DyRep, test mae")
     fig.savefig('dyrepHawkes_social_test.png')
+
+    # 두 날짜 사이의 차이 계산
+    # delta = datetime.fromtimestamp((test_set.END_DATE-test_set.FIRST_DATE)/1000) - datetime(1970, 1, 1)
+    
+    # 모델 정보
+    # print(model)
+    # print('number of training parameters: %d' %
+    #       np.sum([np.prod(p.size()) if p.requires_grad else 0 for p in model.parameters()]))
+    # for arg in vars(args):
+    #     print(arg, getattr(args, arg))
+    # dt = datetime.now()
+    # print('start time:', dt)
+    # experiment_ID = '%s_%06d' % (platform.node(), dt.microsecond)
+    # print('experiment_ID: ', experiment_ID)
