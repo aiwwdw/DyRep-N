@@ -131,7 +131,7 @@ if __name__ == '__main__':
     parser.add_argument('--data_dir', type=str, default='./')
     parser.add_argument('--seed', type=int, default=1111, help='random seed')
     parser.add_argument('--hidden_dim', type=int, default=32, help='hidden layer dimension in DyRep')
-    parser.add_argument('--batch_size', type=int, default=2000, help='batch size')
+    parser.add_argument('--batch_size', type=int, default=200, help='batch size')
     parser.add_argument('--device', type=str, default='cpu', help='cpu or cuda or mps')
     parser.add_argument('--lr', type=float, default=0.0002, help='learning rate')
     parser.add_argument('--lr_decay_step', type=str, default='20', help='number of epochs after which to reduce lr')
