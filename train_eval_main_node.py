@@ -115,8 +115,8 @@ def test_all(model, return_time_hr, device):
             
 
 
-            pos_prob = cond[np.arange(batch_size), u, v]
-            neg_prob = cond[np.arange(batch_size), u, neg_v]
+            pos_prob = cond[np.arange(batch_size), u]
+            neg_prob = cond[np.arange(batch_size), neg_u]
             y_pred = torch.cat([pos_prob, neg_prob], dim=0).cpu()
             y_true = torch.cat(
                 [torch.ones(pos_prob.size(0)),

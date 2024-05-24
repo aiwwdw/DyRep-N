@@ -195,7 +195,7 @@ class DyRepNode(torch.nn.Module):
                 time_key = time_cur_it
                 # u,v에 연결할수는 있는 모든 노드 중, u,v를 제거해서 lambda를 계산, 
                 idx = np.delete(np.arange(self.num_nodes), [int(u_event)])
-                
+
                 # 크기를 넘어서면 예전것부터 없앰
                 if len(self.time_keys) >= len(self.Lambda_dict):
                     time_keys = np.array(self.time_keys)
@@ -206,6 +206,7 @@ class DyRepNode(torch.nn.Module):
                 #발생하지 않은 노드들의 lambda를 더해서 lambda_dict에 저장
                 self.Lambda_dict[len(self.time_keys)] = lambda_all_pred[idx].sum().detach()
                 self.time_keys.append(time_key)
+
 
 
                 # test for time prediction
@@ -381,12 +382,13 @@ class DyRepNode(torch.nn.Module):
             return surv
         else:
             # 일어난 노드부터 index시작
-            print(self.time_keys)
-            print("This is time_bar_u",t_bar_u)
-            start_ind_min = self.time_keys.index(int(t_bar_u))
+            self.time_keys[-10:].index(t_bar_u)
+            print("This is time_bar_u",int(t_bar_u))
+            start_ind_min = self.time_keys.index(t_bar_u)
+            print(start_ind_min)
         
         for i in range(N):
-            t_bar = time_bar[i]
+            t_bar = time_bar[i].item()
             if t_bar < time_keys_min:
                     start_ind = 0  # it means t_bar is beyond the history we kept, so use maximum period saved
             elif t_bar > time_keys_max:
