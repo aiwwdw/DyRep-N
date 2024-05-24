@@ -101,11 +101,11 @@ def test_all(model, return_time_hr, device):
             # 리턴값: 이벤트 노드의 람다, neg 노드의 평균, A_pred, surv, 예상시간
             lambda_event, average_neg, A_pred, Survival_term, pred_time = model(data) # data는 6*batch_size
             
-            print("Model Return: ")
-            print(A_pred)
-            print(Survival_term)
-
-            print(torch.exp(-Survival_term))
+            # print("Model Return: ")
+            # print(A_pred)
+            # print(Survival_term)
+            # print(torch.exp(-Survival_term))
+            
             cond = A_pred * torch.exp(-Survival_term) # cond (1*100(batch_size))
             loss += (-torch.sum(torch.log(lambda_event) + 1e-10) + torch.sum(average_neg).item())
             
@@ -119,10 +119,10 @@ def test_all(model, return_time_hr, device):
             pos_prob = cond[np.arange(batch_size), u]
             neg_prob = cond[np.arange(batch_size), neg_u]
 
-            print("Test_all")
-            print(u,", ",pos_prob)
-            print(neg_u,", ", neg_prob)
-            print(cond)
+            # print("Test_all")
+            # print(u,", ",pos_prob)
+            # print(neg_u,", ", neg_prob)
+            # print(cond)
             
             y_pred = torch.cat([pos_prob, neg_prob], dim=0).cpu()
             y_true = torch.cat(

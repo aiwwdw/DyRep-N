@@ -125,9 +125,7 @@ class DyRepNode(torch.nn.Module):
             """
             
             u_event, time_delta_event, time_bar_it, time_cur_it,significance_it,magnitudo_it = u_all[it], time_delta[it], time_bar[it], time_cur[it],significance[it],magnitudo[it] 
-            if not self.training:
-                print(it)
-                print(time_bar_it)
+            
             u_event=int(u_event)
             u_neigh = torch.nonzero(self.A[u_event, :] == 1, as_tuple=True)[0]
             
@@ -382,10 +380,9 @@ class DyRepNode(torch.nn.Module):
             return surv
         else:
             # 일어난 노드부터 index시작
-            self.time_keys[-10:].index(t_bar_u)
-            print("This is time_bar_u",int(t_bar_u))
-            start_ind_min = self.time_keys.index(t_bar_u)
-            print(start_ind_min)
+            # self.time_keys[-10:].index(t_bar_u)
+            # start_ind_min = self.time_keys.index(t_bar_u)
+            start_ind_min = 2
         
         for i in range(N):
             t_bar = time_bar[i].item()
