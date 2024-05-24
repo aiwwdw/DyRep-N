@@ -99,24 +99,31 @@ def test_all(model, return_time_hr, device):
             batch_size = len(data[0])
             
             # 리턴값: 이벤트 노드의 람다, neg 노드의 평균, A_pred, surv, 예상시간
-            lambda_event, average_neg, A_pred, Survival_term, pred_time = model(data) 
+            lambda_event, average_neg, A_pred, Survival_term, pred_time = model(data) # data는 6*batch_size
             
-            cond = A_pred * torch.exp(-Survival_term)
+            print("Model Return: ")
+            print(A_pred)
+            print(Survival_term)
+
+            print(torch.exp(-Survival_term))
+            cond = A_pred * torch.exp(-Survival_term) # cond (1*100(batch_size))
             loss += (-torch.sum(torch.log(lambda_event) + 1e-10) + torch.sum(average_neg).item())
             
-            print(len(data))
             u, time_delta, time_bar, time_cur, significance, magnitudo = data[:6]
+            u = np.asarray(u).astype(int)
 
-            # u, v, k, time_cur = data[0], data[1], data[3], data[5]
-            
-            neg_v_all = np.delete(np.arange(train_set.N_nodes), u)
-            neg_v = torch.tensor(rnd.choice(neg_v_all, size=batch_size, replace=len(neg_v_all) < batch_size),
+            neg_u_all = np.delete(np.arange(train_set.N_nodes), u)
+            neg_u = torch.tensor(rnd.choice(neg_u_all, size=batch_size, replace=len(neg_u_all) < batch_size),
                                  device=args.device)
             
+            pos_prob = cond[np.arange(batch_size), u]
+            neg_prob = cond[np.arange(batch_size), neg_u]
 
+            print("Test_all")
+            print(u,", ",pos_prob)
+            print(neg_u,", ", neg_prob)
+            print(cond)
 
-            pos_prob = cond[np.arange(batch_size), u, v]
-            neg_prob = cond[np.arange(batch_size), u, neg_v]
             y_pred = torch.cat([pos_prob, neg_prob], dim=0).cpu()
             y_true = torch.cat(
                 [torch.ones(pos_prob.size(0)),
@@ -127,15 +134,15 @@ def test_all(model, return_time_hr, device):
             aps.append(ap)
             aucs.append(auc)
 
-            return_time_pred = torch.stack(pred_time).cpu().numpy()
-            mae = np.mean(abs(return_time_pred - return_time_hr[batch_idx*args.batch_size:(batch_idx*200+batch_size)]))
-            total_ae += mae * batch_size
+            # return_time_pred = torch.stack(pred_time).cpu().numpy()
+            # mae = np.nanmean(abs(return_time_pred - return_time_hr[batch_idx*args.batch_size:(batch_idx*200+batch_size)]))
+            # total_ae += mae * batch_size
 
-        print('\nTEST batch={}/{}, time prediction MAE {}, loss {:.3f}, ap {}, auc {}'.
-                format(batch_idx + 1, len(test_loader), mae,
-                    (loss / ((batch_idx + 1) * batch_size)), ap, auc))
+        # print('\nTEST batch={}/{}, time prediction MAE {}, loss {:.3f}, ap {}, auc {}'.
+        #         format(batch_idx + 1, len(test_loader), mae,
+        #             (loss / ((batch_idx + 1) * batch_size)), ap, auc))
     return total_ae / len(test_set.all_events), loss / len(test_set.all_events), \
-           float(torch.tensor(aps).mean()), float(torch.tensor(aucs).mean())
+           float(torch.tensor(aps).nanmean()), float(torch.tensor(aucs).nanmean())
 
 
 if __name__ == '__main__':
