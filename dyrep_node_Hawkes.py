@@ -68,7 +68,7 @@ class DyRepNode(torch.nn.Module):
 
         assert torch.sum(torch.isnan(A)) == 0, (torch.sum(torch.isnan(A)), A)
 
-        self.Lambda_dict = torch.zeros(5000, device=self.device)
+        self.Lambda_dict = torch.zeros(500, device=self.device) #parameter 5000 원래
         self.time_keys = [] 
 
     def initialize_S_from_A(self):

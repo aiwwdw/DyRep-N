@@ -19,7 +19,6 @@ class EarthquakeDataset(EventsDataset):
 
         graph_df = pd.read_csv('result.csv')
         graph_df = graph_df.sort_values('time')
-        test_time = np.quantile(graph_df.time, 0.9)
         sources = graph_df.cluster.values
         significance = graph_df.significance.values
         magnitudo = graph_df.magnitudo.values
@@ -34,14 +33,16 @@ class EarthquakeDataset(EventsDataset):
         timestamps = graph_df.time.values
         timestamps_date = np.array(list(map(lambda x: datetime.fromtimestamp(int(x/1000), tz=None), timestamps)))
         # timestamps_date 리턴 한번 받아보기
-        train_mask = timestamps<=test_time
-        test_mask = timestamps>test_time
+        
+        # test_time = np.quantile(graph_df.time, 0.9)
+        # train_mask = timestamps<=test_time
+        # test_mask = timestamps>test_time
         
 
-        # mini_time = np.quantile(graph_df.time, 0.20)
-        # mini_test_time = np.quantile(graph_df.time, 0.17)
-        # train_mask = (timestamps<=mini_test_time) & (timestamps<=mini_time)
-        # test_mask = (timestamps>mini_test_time) & (timestamps<=mini_time)
+        mini_time = np.quantile(graph_df.time, 0.082)
+        mini_test_time = np.quantile(graph_df.time, 0.08)
+        train_mask = (timestamps<=mini_test_time) & (timestamps<=mini_time)
+        test_mask = (timestamps>mini_test_time) & (timestamps<=mini_time)
 
 
         # all_events = list(zip(sources,timestamps_date,significance,magnitudo ))

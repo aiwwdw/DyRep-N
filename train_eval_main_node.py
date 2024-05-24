@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader
 import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 import argparse
-# import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 
 from torch import autograd
 
@@ -82,7 +82,7 @@ def MAE(expected_time_hour, batch_ts_true, t_cur):
 
 # def train_all(model, return_time_hr):
     
-def test_all(model, return_time_hr, device):
+def test_all(model, return_time_hr, device,batch_size):
     model.eval()
     
     loss = 0
@@ -105,7 +105,7 @@ def test_all(model, return_time_hr, device):
             # print(A_pred)
             # print(Survival_term)
             # print(torch.exp(-Survival_term))
-            
+
             cond = A_pred * torch.exp(-Survival_term) # cond (1*100(batch_size))
             loss += (-torch.sum(torch.log(lambda_event) + 1e-10) + torch.sum(average_neg).item())
             
@@ -134,13 +134,13 @@ def test_all(model, return_time_hr, device):
             aps.append(ap)
             aucs.append(auc)
 
-            # return_time_pred = torch.stack(pred_time).cpu().numpy()
-            # mae = np.nanmean(abs(return_time_pred - return_time_hr[batch_idx*args.batch_size:(batch_idx*200+batch_size)]))
-            # total_ae += mae * batch_size
+            return_time_pred = torch.stack(pred_time).cpu().numpy()
+            mae = np.nanmean(abs(return_time_pred - return_time_hr[batch_idx*batch_size:(batch_idx*200+batch_size)]))
+            total_ae += mae * batch_size
 
-        # print('\nTEST batch={}/{}, time prediction MAE {}, loss {:.3f}, ap {}, auc {}'.
-        #         format(batch_idx + 1, len(test_loader), mae,
-        #             (loss / ((batch_idx + 1) * batch_size)), ap, auc))
+        print('\nTEST batch={}/{}, time prediction MAE {}, loss {:.3f}, ap {}, auc {}'.
+                format(batch_idx + 1, len(test_loader), mae,
+                    (loss / ((batch_idx + 1) * batch_size)), ap, auc))
     return total_ae / len(test_set.all_events), loss / len(test_set.all_events), \
            float(torch.tensor(aps).nanmean()), float(torch.tensor(aucs).nanmean())
 
@@ -156,7 +156,7 @@ if __name__ == '__main__':
     parser.add_argument('--device', type=str, default='cpu', help='cpu or cuda or mps')
     parser.add_argument('--lr', type=float, default=0.0002, help='learning rate')
     parser.add_argument('--lr_decay_step', type=str, default='20', help='number of epochs after which to reduce lr')
-    parser.add_argument('--epochs', type=int, default=3, help='number of epochs')
+    parser.add_argument('--epochs', type=int, default=10, help='number of epochs')
     parser.add_argument('--all_comms', type=bool, default=False, help='assume all of the links in Jodie as communication or not')
     parser.add_argument('--include_link_feat', type=bool, default=False, help='include link features or not')
     args = parser.parse_args()
@@ -187,7 +187,7 @@ if __name__ == '__main__':
     # 계산이 필요한 환경 세팅
     time_bar_initial = np.zeros((train_set.N_nodes, 1)) + train_set.FIRST_DATE # FIRST_DATE 형식의 (100,1)
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=False)
-    test_loader = DataLoader(test_set, batch_size=1, shuffle=False)
+    test_loader = DataLoader(test_set, batch_size=10, shuffle=False)
     
     test_reoccur_time_hr = get_return_time(test_set) #event별 t_bar 구하기 (event수, 1)
     tain_reoccur_time_hr = get_return_time(train_set)
@@ -281,7 +281,7 @@ if __name__ == '__main__':
                 epoch, args.epochs + 1, time_iter/float(batch_idx+1), total_loss, total_loss_lambda, total_loss_surv))
 
         # test_all: for 문으로 똑같이 한번씩 돌리는 코드 들어있음
-        test_mae, test_loss, test_ap, test_auc = test_all(model, test_reoccur_time_hr, args.device )
+        test_mae, test_loss, test_ap, test_auc = test_all(model, test_reoccur_time_hr, args.device ,args.batch_size)
         
         #리스트에 정보 추가
         all_test_mae.append(test_mae)
@@ -294,31 +294,31 @@ if __name__ == '__main__':
     # visualization codes
 
     # 무시해도 됨 - numpy 관련 에러 수정(지우지는 마삼)
-    # detached_tensors = [tensor.detach() for tensor in first_batch]
-    # detached_arrays = [tensor.numpy() for tensor in detached_tensors]
-    # fig = plt.figure(figsize=(12, 5))
-    # plt.subplot(1, 2, 1)
-    # plt.plot(np.arange(1, args.epochs + 1), np.array(total_losses), 'k', label='total loss')
-    # plt.plot(np.arange(1, args.epochs + 1), np.array(total_losses_lambda), 'r', label='loss events')
-    # plt.plot(np.arange(1, args.epochs + 1), np.array(total_losses_surv), 'b', label='loss nonevents')
-    # plt.legend()
-    # plt.title("DyRep, training loss")
-    # plt.subplot(1, 2, 2)
-    # plt.plot(np.arange(1, args.epochs + 1), np.array(detached_arrays), 'r')
-    # plt.title("DyRep, loss for the first batch for each epoch")
-    # fig.savefig('dyrepHawkes_social_train.png')
+    detached_tensors = [tensor.detach() for tensor in first_batch]
+    detached_arrays = [tensor.numpy() for tensor in detached_tensors]
+    fig = plt.figure(figsize=(12, 5))
+    plt.subplot(1, 2, 1)
+    plt.plot(np.arange(1, args.epochs + 1), np.array(total_losses), 'k', label='total loss')
+    plt.plot(np.arange(1, args.epochs + 1), np.array(total_losses_lambda), 'r', label='loss events')
+    plt.plot(np.arange(1, args.epochs + 1), np.array(total_losses_surv), 'b', label='loss nonevents')
+    plt.legend()
+    plt.title("DyRep, training loss")
+    plt.subplot(1, 2, 2)
+    plt.plot(np.arange(1, args.epochs + 1), np.array(detached_arrays), 'r')
+    plt.title("DyRep, loss for the first batch for each epoch")
+    fig.savefig('dyrepHawkes_social_train.png')
 
-    # fig = plt.figure(figsize=(18, 5))
-    # plt.subplot(1, 3, 1)
-    # plt.plot(np.arange(1, args.epochs + 1), np.array(all_test_loss), 'k', label='total loss')
-    # plt.title("DyRep, test loss")
-    # plt.subplot(1, 3, 2)
-    # plt.plot(np.arange(1, args.epochs + 1), np.array(all_test_ap), 'r')
-    # plt.title("DyRep, test ap")
-    # plt.subplot(1, 3, 3)
-    # plt.plot(np.arange(1, args.epochs + 1), np.array(all_test_mae), 'r')
-    # plt.title("DyRep, test mae")
-    # fig.savefig('dyrepHawkes_social_test.png')
+    fig = plt.figure(figsize=(18, 5))
+    plt.subplot(1, 3, 1)
+    plt.plot(np.arange(1, args.epochs + 1), np.array(all_test_loss), 'k', label='total loss')
+    plt.title("DyRep, test loss")
+    plt.subplot(1, 3, 2)
+    plt.plot(np.arange(1, args.epochs + 1), np.array(all_test_ap), 'r')
+    plt.title("DyRep, test ap")
+    plt.subplot(1, 3, 3)
+    plt.plot(np.arange(1, args.epochs + 1), np.array(all_test_mae), 'r')
+    plt.title("DyRep, test mae")
+    fig.savefig('dyrepHawkes_social_test.png')
 
     # 두 날짜 사이의 차이 계산
     # delta = datetime.fromtimestamp((test_set.END_DATE-test_set.FIRST_DATE)/1000) - datetime(1970, 1, 1)
