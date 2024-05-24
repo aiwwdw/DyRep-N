@@ -125,7 +125,9 @@ class DyRepNode(torch.nn.Module):
             """
             
             u_event, time_delta_event, time_bar_it, time_cur_it,significance_it,magnitudo_it = u_all[it], time_delta[it], time_bar[it], time_cur[it],significance[it],magnitudo[it] 
-
+            if not self.training:
+                print(it)
+                print(time_bar_it)
             u_event=int(u_event)
             u_neigh = torch.nonzero(self.A[u_event, :] == 1, as_tuple=True)[0]
             
@@ -185,7 +187,7 @@ class DyRepNode(torch.nn.Module):
                 if not self.training:
                     lambda_all_list[it, :] = lambda_all_pred
                     assert torch.sum(torch.isnan(lambda_all_list[it])) == 0, (it, torch.sum(torch.isnan(lambda_all_list[it])))
-                    s_u = self.compute_cond_density(impact_nodes, time_bar_it)
+                    s_u = self.compute_cond_density(u_event, time_bar_it)
                     surv_all_list[it,:] = s_u
 
                 # *** 어떤 type의 시간을 사용할것인가?
@@ -231,7 +233,6 @@ class DyRepNode(torch.nn.Module):
                     all_u_neg_sample = self.random_state.choice(batch_nodes, size=self.num_neg_samples*self.num_time_samples,
                                         replace=len(batch_nodes) < self.num_neg_samples*self.num_time_samples)
                     embeddings_u_neg = z_new[all_u_neg_sample]
-                    print("ERROR Part 인듯")
                     surv_neg =  self.compute_hawkes_lambda(embeddings_u_neg, all_td_c)
                     surv_allsamples = surv_neg.view(-1,self.num_neg_samples).mean(dim=-1)
                     lambda_t_allsamples = self.compute_hawkes_lambda(embeddings_u, all_td_c)
@@ -359,7 +360,6 @@ class DyRepNode(torch.nn.Module):
 
     
     def compute_cond_density(self, u, time_bar):
-        u = u[0] # 노드 하나에 대해서 돌아가는지 보려고 해둠
         N = self.num_nodes
         surv = self.Lambda_dict.new_zeros((1, N))
         #단순 코너케이스
@@ -372,6 +372,34 @@ class DyRepNode(torch.nn.Module):
         indices = []
         lambda_indices = []
         t_bar_u = time_bar[u].item()
+
+        if t_bar_u < time_keys_min:
+            start_ind_min = 0
+            #노드의 이벤트가 dictionary 저장 전에 일어났따. 
+        elif t_bar_u > time_keys_max:
+            # 이벤트가 이 노드들에서는 발생하지 않았다.
+            return surv
+        else:
+            # 일어난 노드부터 index시작
+            print(self.time_keys)
+            print("This is time_bar_u",t_bar_u)
+            start_ind_min = self.time_keys.index(int(t_bar_u))
+        
+        for i in range(N):
+            t_bar = time_bar[i]
+            if t_bar < time_keys_min:
+                    start_ind = 0  # it means t_bar is beyond the history we kept, so use maximum period saved
+            elif t_bar > time_keys_max:
+                continue  # it means t_bar is current event, so there is no history for this pair of nodes
+            else:
+                # t_bar is somewhere in after time_keys_min
+                start_ind = self.time_keys.index(t_bar, start_ind_min)
+                lambda_indices.append(start_ind)
+        surv = Lambda_sum[lambda_indices].view(-1,N)
+
+        return surv
+        
+
         if t_bar_u < time_keys_min:
             start_ind_min = 0
             #노드의 이벤트가 dictionary 저장 전에 일어났따. 
