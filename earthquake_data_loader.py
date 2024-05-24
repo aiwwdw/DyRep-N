@@ -4,7 +4,7 @@ import datetime
 from datetime import datetime
 from data_loader import EventsDataset
 import networkx as nx
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 import csv
 from collections import Counter
 
