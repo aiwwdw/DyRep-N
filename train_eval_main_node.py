@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader
 import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 import argparse
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 
 from torch import autograd
 
@@ -237,7 +237,6 @@ if __name__ == '__main__':
             data_batch[1] = data_batch[1].float().to(args.device)
             data_batch[2] = data_batch[2].double().to(args.device)
             data_batch[3] = data_batch[3].double()# no need of GPU
-            
             
             # 단순히 log(pos)- neg 형태의 기울기 반영
             output = model(data_batch) # 모델 forward 돌리고 역전파 생성
