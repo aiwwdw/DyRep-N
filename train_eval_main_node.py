@@ -82,38 +82,52 @@ def MAE(expected_time_hour, batch_ts_true, t_cur):
 
 # def train_all(model, return_time_hr):
     
-def test_all(model, return_time_hr):
+def test_all(model, return_time_hr, device):
     model.eval()
+    
     loss = 0
     total_ae= 0
     aps, aucs = [], []
     with torch.no_grad():
         for batch_idx, data in enumerate(tqdm(test_loader)):
-            data[2] = data[2].float().to(args.device)
-            data[4] = data[4].double().to(args.device)
-            data[5] = data[5].double()
+            
+            
+            data[0] = data[0].float().to(device)
+            data[1] = data[1].float().to(device)
+            data[2] = data[2].double().to(device)
+            data[3] = data[3].double()# no need of GPU
             batch_size = len(data[0])
-            output = model(data)
-            A_pred, Survival_term = output[2], output[3]
+            
+            # 리턴값: 이벤트 노드의 람다, neg 노드의 평균, A_pred, surv, 예상시간
+            lambda_event, average_neg, A_pred, Survival_term, pred_time = model(data) 
+            
             cond = A_pred * torch.exp(-Survival_term)
+            loss += (-torch.sum(torch.log(lambda_event) + 1e-10) + torch.sum(average_neg).item())
+            
+            print(len(data))
+            u, time_delta, time_bar, time_cur, significance, magnitudo = data[:6]
 
-            loss += (-torch.sum(torch.log(output[0]) + 1e-10) + torch.sum(output[1])).item()
-            u, v, k, time_cur = data[0], data[1], data[3], data[5]
-
-            neg_v_all = np.delete(np.arange(train_set.N_nodes), torch.cat([u, v]).cpu().numpy())
+            # u, v, k, time_cur = data[0], data[1], data[3], data[5]
+            
+            neg_v_all = np.delete(np.arange(train_set.N_nodes), u)
             neg_v = torch.tensor(rnd.choice(neg_v_all, size=batch_size, replace=len(neg_v_all) < batch_size),
                                  device=args.device)
+            
+
+
             pos_prob = cond[np.arange(batch_size), u, v]
             neg_prob = cond[np.arange(batch_size), u, neg_v]
             y_pred = torch.cat([pos_prob, neg_prob], dim=0).cpu()
             y_true = torch.cat(
                 [torch.ones(pos_prob.size(0)),
                  torch.zeros(neg_prob.size(0))], dim=0)
+            
             ap = average_precision_score(y_true, y_pred)
             auc = roc_auc_score(y_true, y_pred)
             aps.append(ap)
             aucs.append(auc)
-            return_time_pred = torch.stack(output[-1]).cpu().numpy()
+
+            return_time_pred = torch.stack(pred_time).cpu().numpy()
             mae = np.mean(abs(return_time_pred - return_time_hr[batch_idx*args.batch_size:(batch_idx*200+batch_size)]))
             total_ae += mae * batch_size
 
@@ -192,7 +206,6 @@ if __name__ == '__main__':
     
     # Training Part
     for epoch in range(1, args.epochs + 1):
-        
         # 기타 변수 세팅
         start = time.time()
         total_loss = 0
@@ -262,7 +275,7 @@ if __name__ == '__main__':
                 epoch, args.epochs + 1, time_iter/float(batch_idx+1), total_loss, total_loss_lambda, total_loss_surv))
 
         # test_all: for 문으로 똑같이 한번씩 돌리는 코드 들어있음
-        test_mae, test_loss, test_ap, test_auc = test_all(model, test_reoccur_time_hr)
+        test_mae, test_loss, test_ap, test_auc = test_all(model, test_reoccur_time_hr, args.device )
         
         #리스트에 정보 추가
         all_test_mae.append(test_mae)
