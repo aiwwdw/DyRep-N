@@ -19,7 +19,7 @@ class EarthquakeDataset(EventsDataset):
 
         graph_df = pd.read_csv('result.csv')
         graph_df = graph_df.sort_values('time')
-        test_time = np.quantile(graph_df.time, 0.3)
+        test_time = np.quantile(graph_df.time, 0.1)
         sources = graph_df.cluster.values
         significance = graph_df.significance.values
         magnitudo = graph_df.magnitudo.values

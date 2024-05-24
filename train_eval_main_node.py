@@ -123,7 +123,7 @@ def test_all(model, return_time_hr, device):
             print(u,", ",pos_prob)
             print(neg_u,", ", neg_prob)
             print(cond)
-
+            
             y_pred = torch.cat([pos_prob, neg_prob], dim=0).cpu()
             y_true = torch.cat(
                 [torch.ones(pos_prob.size(0)),
