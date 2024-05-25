@@ -79,8 +79,6 @@ def MAE(expected_time_hour, batch_ts_true, t_cur):
     batch_ae = sum(abs(expected_time_hour-batch_time_hour_true))
     batch_res = list(zip(expected_time_hour, batch_time_hour_true))
     return batch_ae, batch_res
-
-# def train_all(model, return_time_hr):
     
 def test_all(model, return_time_hr, device,batch_size):
     model.eval()
@@ -101,11 +99,6 @@ def test_all(model, return_time_hr, device,batch_size):
             
             # 리턴값: 이벤트 노드의 람다, neg 노드의 평균, A_pred, surv, 예상시간
             lambda_event, average_neg, A_pred, Survival_term, pred_time = model(data) # data는 6*batch_size
-            
-            # print("Model Return: ")
-            # print(A_pred)
-            # print(Survival_term)
-            # print(torch.exp(-Survival_term))
 
             cond = A_pred * torch.exp(-Survival_term) # cond (1*100(batch_size))
             loss += (-torch.sum(torch.log(lambda_event) + 1e-10) + torch.sum(average_neg).item())
@@ -120,11 +113,6 @@ def test_all(model, return_time_hr, device,batch_size):
             pos_prob = cond[np.arange(batch_size), u]
             neg_prob = cond[np.arange(batch_size), neg_u]
 
-            # print("Test_all")
-            # print(u,", ",pos_prob)
-            # print(neg_u,", ", neg_prob)
-            # print(cond)
-            
             y_pred = torch.cat([pos_prob, neg_prob], dim=0).cpu()
             y_true = torch.cat(
                 [torch.ones(pos_prob.size(0)),
@@ -135,13 +123,12 @@ def test_all(model, return_time_hr, device,batch_size):
             aps.append(ap)
             aucs.append(auc)
 
-            return_time_pred = torch.stack(pred_time).cpu().numpy()
-            mae = np.nanmean(abs(return_time_pred - return_time_hr[batch_idx*batch_size:(batch_idx*200+batch_size)]))
+            return_time_real = return_time_hr[batch_idx*batch_size:((batch_idx+1)*batch_size)] #(batch_size,)
+            return_time_pred = torch.stack(pred_time).cpu().numpy() # size = (batch_size,)
+
+            mae = np.nanmean(abs(return_time_pred - return_time_real))
             total_ae += mae * batch_size
 
-        print('\nTEST batch={}/{}, time prediction MAE {}, loss {:.3f}, ap {}, auc {}'.
-                format(batch_idx + 1, len(test_loader), mae,
-                    (loss / ((batch_idx + 1) * batch_size)), ap, auc))
     return total_ae / len(test_set.all_events), loss / len(test_set.all_events), \
            float(torch.tensor(aps).nanmean()), float(torch.tensor(aucs).nanmean())
 
@@ -236,10 +223,7 @@ if __name__ == '__main__':
         # Batch_size 만큼의 event 한번에 계산
         for batch_idx, data_batch in enumerate(tqdm(train_loader)): #tqdm이 막대그래프 표시하는 역할
             
-            
             optimizer.zero_grad()
-
-            # print("Check:",len(data_batch[0][0]))
 
             data_batch[0] = data_batch[0].float().to(args.device)
             data_batch[1] = data_batch[1].float().to(args.device)
@@ -260,15 +244,14 @@ if __name__ == '__main__':
             model.z = model.z.detach()
             model.S = model.S.detach()
             
-            # 데이터 기록
             if batch_idx == 0:
                 first_batch.append(loss)
-                print("Training epoch {}, batch {}/{}, loss {}, loss_lambda {}, loss_surv {}".format(
-                    epoch, batch_idx+1, len(train_loader), loss, losses[0]/args.batch_size, losses[1]/args.batch_size))
+
             total_loss += loss*args.batch_size
             total_loss_lambda += losses[0]
             total_loss_surv += losses[1]
             scheduler.step()
+
 
         # loss 리스트에 추가
         total_loss = float(total_loss)/len(train_set.all_events)
@@ -277,10 +260,8 @@ if __name__ == '__main__':
         total_losses.append(total_loss)
         total_losses_lambda.append(total_loss_lambda)
         total_losses_surv.append(total_loss_surv)
-        if batch_idx == 0:
-            print("Training epoch {}/{}, time per batch {}, loss {}, loss_lambda {}, loss_surv {}".format(
-                epoch, args.epochs + 1, time_iter/float(batch_idx+1), total_loss, total_loss_lambda, total_loss_surv))
-
+        
+        
         # test_all: for 문으로 똑같이 한번씩 돌리는 코드 들어있음
         test_mae, test_loss, test_ap, test_auc = test_all(model, test_reoccur_time_hr, args.device ,args.batch_size)
         
@@ -289,8 +270,13 @@ if __name__ == '__main__':
         all_test_loss.append(test_loss)
         all_test_ap.append(test_ap)
         all_test_auc.append(test_auc)
-        print('\nTEST epoch {}/{}, loss={:.3f}, time prediction MAE {}, ap {}, auc{}'.format(
-            epoch, args.epochs + 1, test_loss, test_mae, test_ap, test_auc))
+
+        print("epoch {}/{}".format(epoch, args.epochs + 1))
+        print("Train: loss {:.5f}, loss_lambda {:.5f}, loss_surv {:.5f}, time per batch {:.5f}".format(
+            total_loss, total_loss_lambda, total_loss_surv, time_iter/float(batch_idx+1)))
+
+        print('Test: loss={:.5f}, time prediction MAE {:.5f}, ap {:.5f}, auc{:.5f}\n\n'.format(
+            test_loss, test_mae, test_ap, test_auc))
     
     # visualization codes
 
