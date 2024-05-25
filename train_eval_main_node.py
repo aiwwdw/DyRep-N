@@ -84,13 +84,14 @@ def MAE(expected_time_hour, batch_ts_true, t_cur):
     
 def test_all(model, return_time_hr, device,batch_size):
     model.eval()
-    
+    time_bar = copy.deepcopy(model.time_bar)
     loss = 0
     total_ae= 0
     aps, aucs = [], []
     with torch.no_grad():
         for batch_idx, data in enumerate(tqdm(test_loader)):
-            
+            if batch_idx==0:
+                model.time_bar = time_bar
             
             data[0] = data[0].float().to(device)
             data[1] = data[1].float().to(device)

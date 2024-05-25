@@ -341,9 +341,9 @@ if __name__ == '__main__':
     initial_embeddings = data['initial_embeddings'].copy()
     # social_data_loader에 클래스 내 함수로 존재
     A_initial = train_set.get_Adjacency()[0]
-    time_bar_initial = np.zeros((train_set.N_nodes)) + train_set.FIRST_DATE.timestamp()
+    time_bar_initial = np.zeros((train_set.N_nodes, 1)) + train_set.FIRST_DATE.timestamp()
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=False)
-    test_loader = DataLoader(test_set, batch_size=args.batch_siz, shuffle=False)
+    test_loader = DataLoader(test_set, batch_size=args.batch_size, shuffle=False)
     test_reoccur_dict, test_reoccur_time_ts, test_reoccur_time_hr = get_return_time(test_set)
 
     # train_td_max 구하기
