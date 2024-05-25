@@ -136,15 +136,19 @@ def test_all(model, return_time_hr, device,batch_size):
 if __name__ == '__main__':
 
     ## 기본적인 입력 parameter 세팅
+    
+    
     parser = argparse.ArgumentParser(description='DyRep Model Training Parameters')
+    parser.add_argument('--epochs', type=int, default=20, help='number of epochs')
+    parser.add_argument('--batch_size', type=int, default=200, help='batch size')
+    parser.add_argument('--test_batch_size', type=int, default=100, help='test_batch size')
+    
     parser.add_argument('--data_dir', type=str, default='./')
     parser.add_argument('--seed', type=int, default=1111, help='random seed')
     parser.add_argument('--hidden_dim', type=int, default=32, help='hidden layer dimension in DyRep')
-    parser.add_argument('--batch_size', type=int, default=200, help='batch size')
     parser.add_argument('--device', type=str, default='cpu', help='cpu or cuda or mps')
     parser.add_argument('--lr', type=float, default=0.0002, help='learning rate')
     parser.add_argument('--lr_decay_step', type=str, default='20', help='number of epochs after which to reduce lr')
-    parser.add_argument('--epochs', type=int, default=10, help='number of epochs')
     parser.add_argument('--all_comms', type=bool, default=False, help='assume all of the links in Jodie as communication or not')
     parser.add_argument('--include_link_feat', type=bool, default=False, help='include link features or not')
     args = parser.parse_args()
@@ -175,7 +179,7 @@ if __name__ == '__main__':
     # 계산이 필요한 환경 세팅
     time_bar_initial = np.zeros((train_set.N_nodes, 1)) + train_set.FIRST_DATE # FIRST_DATE 형식의 (100,1)
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=False)
-    test_loader = DataLoader(test_set, batch_size=10, shuffle=False)
+    test_loader = DataLoader(test_set, batch_size=args.test_batch_size, shuffle=False)
     
     test_reoccur_time_hr = get_return_time(test_set) #event별 t_bar 구하기 (event수, 1)
     tain_reoccur_time_hr = get_return_time(train_set)
@@ -271,7 +275,7 @@ if __name__ == '__main__':
         all_test_ap.append(test_ap)
         all_test_auc.append(test_auc)
 
-        print("epoch {}/{}".format(epoch, args.epochs + 1))
+        print("epoch {}/{}".format(epoch+1, args.epochs + 1))
         print("Train: loss {:.5f}, loss_lambda {:.5f}, loss_surv {:.5f}, time per batch {:.5f}".format(
             total_loss, total_loss_lambda, total_loss_surv, time_iter/float(batch_idx+1)))
 
