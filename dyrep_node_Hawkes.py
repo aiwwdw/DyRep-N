@@ -125,15 +125,15 @@ class DyRepNode(torch.nn.Module):
             """
             
             u_event, time_delta_event, time_bar_it, time_cur_it,significance_it,magnitudo_it = u_all[it], time_delta[it], time_bar[it], time_cur[it],significance[it],magnitudo[it] 
-            
             u_event=int(u_event)
             u_neigh = torch.nonzero(self.A[u_event, :] == 1, as_tuple=True)[0]
-            
+
             # impact_nodes = torch.tensor(u_event) + u_neigh
 
             u_event_tensor = torch.tensor([u_event], dtype=torch.int64)
             impact_nodes = torch.cat((u_event_tensor, u_neigh))
-
+            
+            
             
             time_delta_it = np.zeros((int(1+sum(self.A[int(u_event)])), 1))
             for i, k in enumerate(impact_nodes):
@@ -188,6 +188,9 @@ class DyRepNode(torch.nn.Module):
                     s_u = self.compute_cond_density(u_event, time_bar_it)
                     surv_all_list[it,:] = s_u
 
+
+
+            
                 # *** 어떤 type의 시간을 사용할것인가?
                 # Lambda_dict: 이벤트 일어나는 순서대로 람다 저장(최대 사이즈는 fix) -> survival probability 구할 때 이용
                 time_key = time_cur_it
@@ -205,7 +208,7 @@ class DyRepNode(torch.nn.Module):
                 self.Lambda_dict[len(self.time_keys)] = lambda_all_pred[idx].sum().detach()
                 self.time_keys.append(time_key)
 
-
+                self.time_bar[u_event] = time_cur_it
 
                 # test for time prediction
                 if not self.training:
@@ -370,7 +373,7 @@ class DyRepNode(torch.nn.Module):
         time_keys_max = self.time_keys[-1]
         indices = []
         lambda_indices = []
-        t_bar_u = time_bar[u].item()
+        t_bar_u = self.time_bar[u].item()
 
         if t_bar_u < time_keys_min:
             start_ind_min = 0
@@ -381,19 +384,22 @@ class DyRepNode(torch.nn.Module):
         else:
             # 일어난 노드부터 index시작
             # self.time_keys[-10:].index(t_bar_u)
-            # start_ind_min = self.time_keys.index(t_bar_u)
-            start_ind_min = 2
+            start_ind_min = self.time_keys.index(t_bar_u)
         
         for i in range(N):
-            t_bar = time_bar[i].item()
+            t_bar = self.time_bar[i].item()
+            if i == u:
+                lambda_indices.append(start_ind_min)
+                pass
             if t_bar < time_keys_min:
                     start_ind = 0  # it means t_bar is beyond the history we kept, so use maximum period saved
             elif t_bar > time_keys_max:
                 continue  # it means t_bar is current event, so there is no history for this pair of nodes
             else:
                 # t_bar is somewhere in after time_keys_min
-                start_ind = self.time_keys.index(t_bar, start_ind_min)
-                lambda_indices.append(start_ind)
+                start_ind = self.time_keys.index(t_bar)
+                
+            lambda_indices.append(start_ind)
         surv = Lambda_sum[lambda_indices].view(-1,N)
 
         return surv
