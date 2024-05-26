@@ -188,7 +188,7 @@ if __name__ == '__main__':
                   random_state= rnd,
                   first_date=train_set.FIRST_DATE,
                   end_datetime=test_set.END_DATE,
-                  num_neg_samples=10,
+                  num_neg_samples=10, # ****
                   num_time_samples=5,
                   device=args.device,
                   all_comms=args.all_comms,

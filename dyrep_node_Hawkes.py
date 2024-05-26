@@ -57,10 +57,10 @@ class DyRepNode(torch.nn.Module):
         """
         z = np.pad(node_embeddings_initial, ((0, 0), (0, self.hidden_dim - node_embeddings_initial.shape[1])),'constant')
         z = torch.from_numpy(z).float().to(self.device)
-        A = torch.from_numpy(A_initial).float().to(self.device) ## *** (num_node, num_node)로 설정해야함 
+        A = torch.from_numpy(A_initial).float().to(self.device) ## ** (num_node, num_node)로 설정해야함 
         self.register_buffer('z', z)
         self.register_buffer('A', A)
-        self.node_degree_global = node_degree_initial ## ***train에는 (n_assoc_type,num_node로) -> (num_node)로 설정해야함
+        self.node_degree_global = node_degree_initial ## **train에는 (n_assoc_type,num_node로) -> (num_node)로 설정해야함
         self.time_bar = time_bar
 
         ## S를 1/deg(u)로 initalize
@@ -96,14 +96,14 @@ class DyRepNode(torch.nn.Module):
         lambda_list,  lambda_u_neg = [], []
         batch_embeddings_u, batch_embeddings_u_neg = [], []
         ts_diff_neg = []
-        z_prev = self.z # 초기 세팅
+        ts_diff = []
+        z_prev = self.z
         expected_time = []
 
         # testing일때, A_pred, surv를 초기화 세팅
         if not self.training:
             lambda_all_list = self.A.new_zeros((batch_size, self.num_nodes))
             surv_all_list = self.A.new_zeros((batch_size, self.num_nodes))
-        
         
         for it in range(batch_size):
             """
@@ -115,92 +115,93 @@ class DyRepNode(torch.nn.Module):
             significance_it: 
             magnitudo_it: 
             """
-            u_event, time_delta_event, time_bar_it, time_cur_it,significance_it,magnitudo_it = u_all[it], time_delta[it], time_bar[it], time_cur[it],significance[it],magnitudo[it] 
+            u_event, time_delta_event, time_bar_it, time_cur_it, significance_it, magnitudo_it = u_all[it], time_delta[it], time_bar[it], time_cur[it],significance[it],magnitudo[it] 
             u_event = int(u_event)
 
             # impact_nodes 계산
             u_neigh = torch.nonzero(self.A[u_event, :] == 1, as_tuple=True)[0]
-            u_event_tensor = torch.tensor([u_event], dtype=torch.int64) # u_event랑 연결된애들 모음
-            impact_nodes = torch.cat((u_event_tensor, u_neigh))
+            u_event_tensor = torch.tensor([u_event], dtype=torch.int64)
+            impact_nodes = torch.cat((u_event_tensor, u_neigh)) # u_event랑 연결된애들 모음
 
-            # time_delta_it 계산
+            # time_delta_it 계산 - for update_node_embedding 함수
             time_delta_it = np.zeros((int(impact_nodes.shape[0]), 1)) # 같은 사이즈로 생성
             for i, k in enumerate(impact_nodes):
-                time_delta_it[i] = time_cur_it - time_bar_it[i] # 현재 시간과 time_bar 차이
+                time_delta_it[i] = time_cur_it - time_bar_it[i] # 현재 시간과 time_bar 차이 **** k아님?
             time_delta_it = torch.Tensor(time_delta_it) # impact_nodes의 t_curr - t_bar
+            # event_node의 delta 계속 저장
+            ts_diff.append(time_cur_it - time_bar_it[impact_nodes[0]]) # (1,) 저장
             
-            # ts_diff_neg 계산 - survival probability를 위한 negative sampling 생성
-            batch_nodes = np.delete(np.arange(self.num_nodes), [int(u_event)])
-            batch_u_neg = self.random_state.choice(batch_nodes, size=self.num_neg_samples,
-                                                    replace=len(batch_nodes) < self.num_neg_samples)
-            last_t_neg = time_bar_it[batch_u_neg]
-            ts_diff_neg.append(time_cur_it -last_t_neg) # neg의 t_curr - t_bar
+            # ts_diff_neg 계산 size:(num_neg_samples,1) - survivabsal probability를 위한 negative sampling 생성
+            batch_nodes = np.delete(np.arange(self.num_nodes), [u_event])
+            batch_u_neg = self.random_state.choice(batch_nodes, size=self.num_neg_samples, replace=len(batch_nodes) < self.num_neg_samples)
+            last_t_neg = time_bar_it[batch_u_neg] # (num_neg_samples,1)
+            ts_diff_neg.append(time_cur_it -last_t_neg) # neg의 t_curr - t_bar - (num_neg_samples,1)
 
             # z_new(node_num,1) - u_event랑 u_neigh에 대한 z만 수정
             z_new = self.update_node_embedding_without_attention(z_prev, u_event, u_neigh, time_delta_it)
             assert torch.sum(torch.isnan(z_new)) == 0, (torch.sum(torch.isnan(z_new)), z_new, it)
             
             # 각 노드의 embedding 값 저장
-            batch_embeddings_u.append(z_prev[int(u_event)])
-            batch_embeddings_u_neg.append(z_prev[batch_u_neg])
+            batch_embeddings_u.append(z_prev[u_event]) #값 한개
+            batch_embeddings_u_neg.append(z_prev[batch_u_neg]) # (num_neg_samples) list append
 
             ## 모든 node별 conditional density
             with torch.no_grad():
                 # 모든 노드에 대한 hawkes lambda 계산하기
-                time_diff_pred = time_cur_it - time_bar_it
+                time_diff_pred = time_cur_it - time_bar_it # node 별 
                 lambda_all_pred = self.compute_hawkes_lambda(z_prev, time_diff_pred)
                 
                 # test - survival probability 계산 후, 저장
                 if not self.training:
-                    print(lambda_all_pred.size())
+                    
                     lambda_all_list[it, :] = lambda_all_pred
                     assert torch.sum(torch.isnan(lambda_all_list[it])) == 0, (it, torch.sum(torch.isnan(lambda_all_list[it])))
                     s_u = self.compute_cond_density(u_event, time_bar_it)
                     surv_all_list[it,:] = s_u
 
                 # Lambda_dict: (survival probability 구하기용) 시간 순서대로 event에 대한 람다 저장
-                # 안중요 - 크기를 넘어서면 예전것부터 없앰
-                if len(self.time_keys) >= len(self.Lambda_dict):
+                if len(self.time_keys) >= len(self.Lambda_dict): # 안중요 - 크기를 넘어서면 예전것부터 없앰
                     time_keys = np.array(self.time_keys)
                     time_keys[:-1] = time_keys[1:]
                     self.time_keys = list(time_keys[:-1])
                     self.Lambda_dict[:-1] = self.Lambda_dict.clone()[1:]
                     self.Lambda_dict[-1] = 0
-                # 발생하지 않은 노드들의 lambda를 더해서 lambda_dict에 저장
-                idx = np.delete(np.arange(self.num_nodes), [int(u_event)])
+                
+                # 발생하지 않은 노드들의 lambda를 더해서 lambda_dict에 저장 - Lambda_dict[1]: 1번째 batch에 대한 lambda_all_pred
+                idx = np.delete(np.arange(self.num_nodes), [u_event])
                 self.Lambda_dict[len(self.time_keys)] = lambda_all_pred[idx].sum().detach()
                 self.time_keys.append(time_cur_it)
 
-                ################################################################
                 self.time_bar[u_event] = time_cur_it
 
-
-                # test - for time prediction
+                # test - for time prediction - 여기 아직 안봄
                 if not self.training:
                     t_cur_date = time_cur_it
-                    t_prev = time_bar_it[int(u_event)]
-                    td = t_cur_date - t_prev
-                    time_scale_hour = td
+                    time_scale_hour = t_cur_date - time_bar_it[u_event] # 계산 시간 차이
                     
-                    # t_cur_date = datetime.fromtimestamp(int(time_cur_it))
-                    # Use the cur and most recent time
-                    # t_prev = datetime.fromtimestamp(int(time_bar_it[int(u_event)]))
-                    # td = t_cur_date - t_prev
-                    # time_scale_hour = round((td.days*24 + td.seconds/3600),3)
                     surv_allsamples = z_new.new_zeros(self.num_time_samples)
-                    factor_samples = 2*self.random_state.rand(self.num_time_samples)
-                    sampled_time_scale = time_scale_hour*factor_samples
+                    factor_samples = 2 * self.random_state.rand(self.num_time_samples) # ** 왜 2곱함?
+                    sampled_time_scale = time_scale_hour * factor_samples
 
                     embeddings_u = z_new[int(u_event)].expand(self.num_time_samples, -1)
                     all_td_c = torch.zeros(self.num_time_samples)
-
+                    
+                    
                     t_c_n = torch.tensor(list(np.cumsum(sampled_time_scale))).to(self.device)
                     all_td_c = t_c_n
 
                     all_u_neg_sample = self.random_state.choice(batch_nodes, size=self.num_neg_samples*self.num_time_samples,
                                         replace=len(batch_nodes) < self.num_neg_samples*self.num_time_samples)
                     embeddings_u_neg = z_new[all_u_neg_sample]
+                    
+                    print("error part")
+                    print(time_scale_hour.shape) # batch1 수
+                    print(factor_samples.shape) # num_time_samples5 수
+                    print(sampled_time_scale.shape) # 5
+                    print(t_c_n.shape) # self.num_neg_samples*self.num_time_samples 25
+
                     surv_neg =  self.compute_hawkes_lambda(embeddings_u_neg, all_td_c)
+
                     surv_allsamples = surv_neg.view(-1,self.num_neg_samples).mean(dim=-1)
                     lambda_t_allsamples = self.compute_hawkes_lambda(embeddings_u, all_td_c)
                     f_samples = lambda_t_allsamples*torch.exp(-surv_allsamples)
@@ -213,35 +214,34 @@ class DyRepNode(torch.nn.Module):
         
         # training 끝나면 z 반영
         self.z = z_new
-
-        # time prediction
         
-        #### batch update for all events' intensity
-
-        # batch_update면 위에서 했던거 for문 끝나고 한번에 시행
-        # 아니면 이미 계산한거 합치기
+        # event에 따른 lambda_list를 새로 계산 - batch_embeddings_u는 이전 없데이트에 대해
+        # time_delta를 쓰는거에 대해 생각해봐야할듯 ****
+        # batch_embeddings_u = torch.stack(batch_embeddings_u, dim=0)
+        # last_t_u = time_delta[torch.arange(batch_size), [0]*batch_size]
+        # ts_diff = time_cur.view(-1)-last_t_u
+        # lambda_list = self.compute_hawkes_lambda(batch_embeddings_u, ts_diff)
+        
         batch_embeddings_u = torch.stack(batch_embeddings_u, dim=0)
-        last_t_u = time_delta[torch.arange(batch_size), [0]*batch_size]
-        ts_diff = time_cur.view(-1)-last_t_u
+        ts_diff =  torch.cat(ts_diff)
         lambda_list = self.compute_hawkes_lambda(batch_embeddings_u, ts_diff)
         
-        # *** attention은 제외함
+
+
+        batch_embeddings_u_neg = torch.cat(batch_embeddings_u_neg, dim=0)
+        lambda_u_neg = torch.zeros(len(batch_embeddings_u_neg), device=self.device)
+        ts_diff_neg = torch.cat(ts_diff_neg)
+        lambda_u_neg = self.compute_hawkes_lambda(batch_embeddings_u_neg, ts_diff_neg)
+
+        # attention은 제외함
         # for i,k in enumerate(event_types):
         #     u_it, v_it = u_all[i], v_all[i]
         #     self.update_A_S(u_it, v_it, k, lambda_uv[i].item())
         #     for j in [u_it, v_it]:
         #         self.node_degree_global[j] = torch.sum(self.A[j, :]>0).item()
         
-        # 앞에 데이터들 형식 통일
-        # neg 엣지들에 대해서도 람다 계산
-        batch_embeddings_u_neg = torch.cat(batch_embeddings_u_neg, dim=0)
-        neg_events_len = len(batch_embeddings_u_neg)
-        lambda_u_neg = torch.zeros(neg_events_len, device=self.device)
-        ts_diff_neg = torch.cat(ts_diff_neg)
-        lambda_u_neg = self.compute_hawkes_lambda(batch_embeddings_u_neg, ts_diff_neg)
 
         # 리턴값: 이벤트 노드의 람다, neg 노드의 평균, A_pred, surv, 예상시간
-
         return lambda_list, lambda_u_neg / self.num_neg_samples,lambda_all_list, surv_all_list, expected_time
         
     def compute_hawkes_lambda(self, z_u, td):
@@ -250,31 +250,29 @@ class DyRepNode(torch.nn.Module):
         
         Args:
         z_u (torch.Tensor): Source node의 embedding (shape: [batch_size, hidden_dim])
-        z_v (torch.Tensor): Target node의 embedding (shape: [batch_size, hidden_dim])
-        et_uv (torch.Tensor): node u와 v 사이의 event 유형 (shape: [batch_size])
         td (torch.Tensor): 현재 event와 마지막 event 사이의 시간 차이 (shape: [batch_size])
 
         Returns:
-        torch.Tensor: 주어진 node pair와 event 유형에 대한 계산된 lambda
+        torch.Tensor: 주어진 node에 의해 계산된 lambda ()
         """
 
         # embedding이 올바른 shape을 가지도록 보장
         z_u = z_u.reshape(-1, self.hidden_dim)
         g = z_u.new_zeros(len(z_u))    # 강도 벡터를 초기화
         # 각 event 유형에 대해 해당 linear layer (omega)를 사용하여 강도 (g)를 계산
-        g = self.omega(z_u).flatten()
+        g = self.omega(z_u).flatten() # (batch_size,1)
 
         psi = self.psi
         alpha = self.alpha
         w_t = self.w_t
         # g_psi = g / (psi + 1e-7)
-        g_psi = torch.clamp(g/(psi + 1e-7), -75, 75) # avoid overflow
+        g_psi = torch.clamp(g/(psi + 1e-7), -75, 75) # avoid overflow (batch_size,1)
         
         # Hawkes 프로세스 강도 (Lambda) 계산, 뒷부분이 hawkes를 의미
         # Lambda = psi * torch.log(1 + torch.exp(g_psi))
-        print(td.size(), g_psi.size())
-        time_effect = alpha*torch.exp(-w_t*(td/self.train_td_max))
-        Lambda = psi * torch.log(1 + torch.exp(g_psi)) + time_effect
+        # print(td.size(), g_psi.size())
+        time_effect = alpha*torch.exp(-w_t*(td/self.train_td_max)).squeeze() # (batch_size,)
+        Lambda = psi * torch.log(1 + torch.exp(g_psi)) + time_effect # (batch_size,)
         
         return Lambda
  
@@ -291,8 +289,7 @@ class DyRepNode(torch.nn.Module):
         Returns:
         torch.Tensor: 업데이트된 node embedding
         """
-        # *** attention 사용하지 않은 버전
-
+        
         # 이전 embedding을 복제하여 새로운 embedding 생성
         z_new = prev_embedding.clone()
         
@@ -310,7 +307,6 @@ class DyRepNode(torch.nn.Module):
                                   self.W_t(time_delta_it[0]))
         return z_new
 
-    
     def compute_cond_density(self, u, time_bar):
         # print(u)
         N = self.num_nodes
