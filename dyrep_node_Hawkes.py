@@ -57,10 +57,10 @@ class DyRepNode(torch.nn.Module):
         """
         z = np.pad(node_embeddings_initial, ((0, 0), (0, self.hidden_dim - node_embeddings_initial.shape[1])),'constant')
         z = torch.from_numpy(z).float().to(self.device)
-        A = torch.from_numpy(A_initial).float().to(self.device) ## ** (num_node, num_node)로 설정해야함 
+        A = torch.from_numpy(A_initial).float().to(self.device) ## (num_node, num_node)로 설정해야함 
         self.register_buffer('z', z)
         self.register_buffer('A', A)
-        self.node_degree_global = node_degree_initial ## **train에는 (n_assoc_type,num_node로) -> (num_node)로 설정해야함
+        self.node_degree_global = node_degree_initial ## train에는 (n_assoc_type,num_node로) -> (num_node)로 설정해야함
         self.time_bar = time_bar
 
         ## S를 1/deg(u)로 initalize
@@ -126,7 +126,8 @@ class DyRepNode(torch.nn.Module):
             # time_delta_it 계산 - for update_node_embedding 함수
             time_delta_it = np.zeros((int(impact_nodes.shape[0]), 1)) # 같은 사이즈로 생성
             for i, k in enumerate(impact_nodes):
-                time_delta_it[i] = time_cur_it - time_bar_it[i] # 현재 시간과 time_bar 차이 **** k아님?
+                time_delta_it[i] = time_cur_it - time_bar_it[k] # 현재 시간과 time_bar 차이
+            
             time_delta_it = torch.Tensor(time_delta_it) # impact_nodes의 t_curr - t_bar
             # event_node의 delta 계속 저장
             ts_diff.append(time_cur_it - time_bar_it[impact_nodes[0]]) # (1,) 저장
@@ -173,7 +174,7 @@ class DyRepNode(torch.nn.Module):
 
                 self.time_bar[u_event] = time_cur_it
 
-                # test - for time prediction - 여기 아직 안봄
+                # test - for time prediction
                 if not self.training:
                     t_cur_date = time_cur_it
                     time_scale_hour = t_cur_date - time_bar_it[u_event] # 계산 시간 차이
@@ -182,28 +183,19 @@ class DyRepNode(torch.nn.Module):
                     factor_samples = 2 * self.random_state.rand(self.num_time_samples) # ** 왜 2곱함?
                     sampled_time_scale = time_scale_hour * factor_samples
 
-                    embeddings_u = z_new[int(u_event)].expand(self.num_time_samples, -1)
-                    all_td_c = torch.zeros(self.num_time_samples)
+                    embeddings_u = z_new[u_event].expand(self.num_time_samples, -1) # (num_time_samples,32(hidden_dim)) 같은 임베딩 5배
                     
-                    
-                    t_c_n = torch.tensor(list(np.cumsum(sampled_time_scale))).to(self.device)
-                    all_td_c = t_c_n
-                    print(all_td_c.size())
+                    all_td_c =  torch.tensor(list(np.cumsum(sampled_time_scale))).to(self.device)
 
                     all_u_neg_sample = self.random_state.choice(batch_nodes, size=self.num_neg_samples*self.num_time_samples,
                                         replace=len(batch_nodes) < self.num_neg_samples*self.num_time_samples)
                     embeddings_u_neg = z_new[all_u_neg_sample]
-                    print("error part")
-                    print(time_scale_hour.shape) # batch1 수
-                    print(factor_samples.shape) # num_time_samples5 수
-                    print(sampled_time_scale.shape) # 5
-                    print(t_c_n.shape) # self.num_neg_samples*self.num_time_samples 25
 
                     surv_neg =  self.compute_hawkes_lambda(embeddings_u_neg, all_td_c)
-
                     surv_allsamples = surv_neg.view(-1,self.num_neg_samples).mean(dim=-1)
                     lambda_t_allsamples = self.compute_hawkes_lambda(embeddings_u, all_td_c)
-                    print(surv_allsamples.size())
+                    
+
                     f_samples = lambda_t_allsamples*torch.exp(-surv_allsamples)
                     expectation = torch.cumsum(sampled_time_scale, dim=0)*f_samples
                     expectation = expectation.sum()
@@ -225,6 +217,7 @@ class DyRepNode(torch.nn.Module):
         batch_embeddings_u = torch.stack(batch_embeddings_u, dim=0)
         last_t_u = time_delta[torch.arange(batch_size), [0]*batch_size]
         ts_diff = (time_cur.view(-1)-last_t_u).unsqueeze(1)
+        
         lambda_list = self.compute_hawkes_lambda(batch_embeddings_u, ts_diff)
         
 
