@@ -34,16 +34,16 @@ class EarthquakeDataset(EventsDataset):
         timestamps_date = np.array(list(map(lambda x: datetime.fromtimestamp(int(x/1000), tz=None), timestamps)))
         
         
-        test_time = np.quantile(graph_df.time, 0.9)
-        train_mask = timestamps<=test_time
-        test_mask = timestamps>test_time
+        # test_time = np.quantile(graph_df.time, 0.9)
+        # train_mask = timestamps<=test_time
+        # test_mask = timestamps>test_time
         
 
         # mini data set 생성기
-        # mini_time = np.quantile(graph_df.time, 0.082)
-        # mini_test_time = np.quantile(graph_df.time, 0.08)
-        # train_mask = (timestamps<=mini_test_time) & (timestamps<=mini_time)
-        # test_mask = (timestamps>mini_test_time) & (timestamps<=mini_time)
+        mini_time = np.quantile(graph_df.time, 0.082)
+        mini_test_time = np.quantile(graph_df.time, 0.08)
+        train_mask = (timestamps<=mini_test_time) & (timestamps<=mini_time)
+        test_mask = (timestamps>mini_test_time) & (timestamps<=mini_time)
 
 
         # all_events = list(zip(sources,timestamps_date,significance,magnitudo ))

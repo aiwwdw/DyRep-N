@@ -146,24 +146,14 @@ class DyRepNode(torch.nn.Module):
             ## 1. lambda 구하기
             # batch_update면 다 batch 끝나고 기록된 v,u 임베딩에 대해서 계산
             # 아니면 실시간 람다 계산 및 리스트 저장
-            if self.batch_update:
-                batch_embeddings_u.append(z_prev[int(u_event)]) 
-            else:
-                lambda_u_it = self.compute_intensity_lambda(z_prev[impact_nodes])
-                lambda_list.append(lambda_u_it)
+            batch_embeddings_u.append(z_prev[int(u_event)]) 
+            
 
             ## 2. 노드별 embedding 계산
 
             z_new = self.update_node_embedding_without_attention(z_prev, u_event, u_neigh, time_delta_it)
             assert torch.sum(torch.isnan(z_new)) == 0, (torch.sum(torch.isnan(z_new)), z_new, it)
             
-
-            ## 3. batch_update 업데이트가 아니면 매 순간 S,A 계산
-            # batch_update면 뒤쪽에서 한번에 
-            # *** 수정안함
-            # if not self.batch_update:
-            #     self.update_S(u_it, lambda_u_it)
-
 
             ## 4. survival probability를 위한 negative sampling 생성
             # u를 제외한 노드들에 대하여, num_neg_samples 만큼의 노드를 샘플링
@@ -256,20 +246,18 @@ class DyRepNode(torch.nn.Module):
 
         # batch_update면 위에서 했던거 for문 끝나고 한번에 시행
         # 아니면 이미 계산한거 합치기
-        if self.batch_update:
-            batch_embeddings_u = torch.stack(batch_embeddings_u, dim=0)
-            last_t_u = time_delta[torch.arange(batch_size), [0]*batch_size]
-            ts_diff = time_cur.view(-1)-last_t_u
-            lambda_list = self.compute_hawkes_lambda(batch_embeddings_u, ts_diff)
-            # *** attention은 제외함
-            # for i,k in enumerate(event_types):
-            #     u_it, v_it = u_all[i], v_all[i]
-            #     self.update_A_S(u_it, v_it, k, lambda_uv[i].item())
-            #     for j in [u_it, v_it]:
-            #         self.node_degree_global[j] = torch.sum(self.A[j, :]>0).item()
-        else: 
-            lambda_list = torch.cat(lambda_list, dim=0)
-
+        batch_embeddings_u = torch.stack(batch_embeddings_u, dim=0)
+        last_t_u = time_delta[torch.arange(batch_size), [0]*batch_size]
+        ts_diff = time_cur.view(-1)-last_t_u
+        lambda_list = self.compute_hawkes_lambda(batch_embeddings_u, ts_diff)
+        
+        # *** attention은 제외함
+        # for i,k in enumerate(event_types):
+        #     u_it, v_it = u_all[i], v_all[i]
+        #     self.update_A_S(u_it, v_it, k, lambda_uv[i].item())
+        #     for j in [u_it, v_it]:
+        #         self.node_degree_global[j] = torch.sum(self.A[j, :]>0).item()
+        
         # 앞에 데이터들 형식 통일
         # neg 엣지들에 대해서도 람다 계산
         batch_embeddings_u_neg = torch.cat(batch_embeddings_u_neg, dim=0)
@@ -310,23 +298,6 @@ class DyRepNode(torch.nn.Module):
         # Hawkes 프로세스 강도 (Lambda) 계산, 뒷부분이 hawkes를 의미
         Lambda = psi * torch.log(1 + torch.exp(g_psi))
         #Lambda = psi * torch.log(1 + torch.exp(g_psi)) + alpha*torch.exp(-w_t*(td/self.train_td_max))
-        return Lambda
-
-    def compute_intensity_lambda(self, z_u):
-        """
-        주어진 node embedding을 사용하여 event 강도 (lambda)를 계산
-        """
-        # embedding이 올바른 shape을 가지도록 보장
-        z_u = z_u.view(-1, self.hidden_dim)
-        g = z_u.new_zeros(len(z_u))  # 강도 벡터를 초기화
-        # 각 event 유형에 대해 해당 linear layer (omega)를 사용하여 강도 (g)를 계산
-        g = self.omega(z_u).flatten()
-
-        psi = self.psi
-        g_psi = torch.clamp(g/(psi + 1e-7), -75, 75) # avoid overflow
-
-        # 강도 (Lambda) 계산
-        Lambda = psi * torch.log(1 + torch.exp(g_psi))
         return Lambda
  
     def update_node_embedding_without_attention(self, prev_embedding, u_event, u_neighborhood, time_delta_it):

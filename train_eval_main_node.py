@@ -100,35 +100,32 @@ def test_all(model, return_time_hr, device,batch_size):
             # 리턴값: 이벤트 노드의 람다, neg 노드의 평균, A_pred, surv, 예상시간
             lambda_event, average_neg, A_pred, Survival_term, pred_time = model(data) # data는 6*batch_size
 
-            cond = A_pred * torch.exp(-Survival_term) # cond (1*100(batch_size))
+            cond = A_pred * torch.exp(-Survival_term) # cond (100(batch_size)*100(node 수))
+            
             loss += (-torch.sum(torch.log(lambda_event) + 1e-10) + torch.sum(average_neg).item())
-            
-            u, time_delta, time_bar, time_cur, significance, magnitudo = data[:6]
-            u = np.asarray(u).astype(int)
-
+        
+            u = np.asarray(data[:6][0]).astype(int) # (batch_size) - event별 활성화 노드
             neg_u_all = np.delete(np.arange(train_set.N_nodes), u)
-            neg_u = torch.tensor(rnd.choice(neg_u_all, size=batch_size, replace=len(neg_u_all) < batch_size),
-                                 device=args.device)
+            neg_u = torch.tensor(rnd.choice(neg_u_all, size=batch_size, replace=len(neg_u_all) < batch_size), device=device)
             
-            pos_prob = cond[np.arange(batch_size), u]
-            neg_prob = cond[np.arange(batch_size), neg_u]
-
+            # for y_pred 계산 및 y_true 계산 - 다음 event일때, node별 지진이 날 확률
+            pos_prob = cond[np.arange(batch_size), u] #(batch_size,1)
+            neg_prob = cond[np.arange(batch_size), neg_u] #(batch_size,1) 샘플 하나만 뽑기에 문제가 있긴함
             y_pred = torch.cat([pos_prob, neg_prob], dim=0).cpu()
-            y_true = torch.cat(
-                [torch.ones(pos_prob.size(0)),
-                 torch.zeros(neg_prob.size(0))], dim=0)
+            y_true = torch.cat([torch.ones(pos_prob.size(0)), torch.zeros(neg_prob.size(0))], dim=0)
             
             ap = average_precision_score(y_true, y_pred)
-            auc = roc_auc_score(y_true, y_pred)
             aps.append(ap)
+            auc = roc_auc_score(y_true, y_pred)
             aucs.append(auc)
-
+            
+            # total_ae 구하기
             return_time_real = return_time_hr[batch_idx*batch_size:((batch_idx+1)*batch_size)] #(batch_size,)
-            return_time_pred = torch.stack(pred_time).cpu().numpy() # size = (batch_size,)
-
-            mae = np.nanmean(abs(return_time_pred - return_time_real))
-            total_ae += mae * batch_size
-
+            return_time_pred = torch.stack(pred_time).cpu().numpy() # size = (batch_size,
+            assert len(return_time_real) == len(return_time_pred)
+            mae = abs(return_time_pred - return_time_real).sum()
+            total_ae += mae
+            
     return total_ae / len(test_set.all_events), loss / len(test_set.all_events), \
            float(torch.tensor(aps).nanmean()), float(torch.tensor(aucs).nanmean())
 
@@ -139,7 +136,7 @@ if __name__ == '__main__':
     
     
     parser = argparse.ArgumentParser(description='DyRep Model Training Parameters')
-    parser.add_argument('--epochs', type=int, default=20, help='number of epochs')
+    parser.add_argument('--epochs', type=int, default=2, help='number of epochs')
     parser.add_argument('--batch_size', type=int, default=200, help='batch size')
     parser.add_argument('--test_batch_size', type=int, default=100, help='test_batch size')
     
@@ -299,16 +296,22 @@ if __name__ == '__main__':
     plt.title("DyRep, loss for the first batch for each epoch")
     fig.savefig('dyrepHawkes_social_train.png')
 
-    fig = plt.figure(figsize=(18, 5))
-    plt.subplot(1, 3, 1)
+    fig = plt.figure(figsize=(24, 5))
+    plt.subplot(1, 4, 1)
     plt.plot(np.arange(1, args.epochs + 1), np.array(all_test_loss), 'k', label='total loss')
     plt.title("DyRep, test loss")
-    plt.subplot(1, 3, 2)
+    plt.subplot(1, 4, 2)
     plt.plot(np.arange(1, args.epochs + 1), np.array(all_test_ap), 'r')
     plt.title("DyRep, test ap")
-    plt.subplot(1, 3, 3)
+    plt.subplot(1, 4, 3)
     plt.plot(np.arange(1, args.epochs + 1), np.array(all_test_mae), 'r')
     plt.title("DyRep, test mae")
+    
+    plt.subplot(1, 4, 4)
+    plt.plot(np.arange(1, args.epochs + 1), np.array(all_test_auc), 'r')
+    plt.title("DyRep, test auc")
+
+
     fig.savefig('dyrepHawkes_social_test.png')
 
     # 두 날짜 사이의 차이 계산
