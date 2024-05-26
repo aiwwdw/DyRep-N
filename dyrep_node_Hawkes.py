@@ -211,21 +211,11 @@ class DyRepNode(torch.nn.Module):
         # training 끝나면 z 반영
         self.z = z_new
         
-        # event에 따른 lambda_list를 새로 계산 - batch_embeddings_u는 이전 없데이트에 대해
-        # time_delta를 쓰는거에 대해 생각해봐야할듯 ****
-        # batch_embeddings_u = torch.stack(batch_embeddings_u, dim=0)
-        # last_t_u = time_delta[torch.arange(batch_size), [0]*batch_size]
-        # ts_diff = time_cur.view(-1)-last_t_u
-        # lambda_list = self.compute_hawkes_lambda(batch_embeddings_u, ts_diff)
-        
+        # 람다 리스트
         batch_embeddings_u = torch.stack(batch_embeddings_u, dim=0)
-        last_t_u = time_delta[torch.arange(batch_size), [0]*batch_size]
-        ts_diff = (time_cur.view(-1)-last_t_u).unsqueeze(1)
-        
+        ts_diff = torch.cat(ts_diff)
         lambda_list = self.compute_hawkes_lambda(batch_embeddings_u, ts_diff)
         
-
-
         batch_embeddings_u_neg = torch.cat(batch_embeddings_u_neg, dim=0)
         lambda_u_neg = torch.zeros(len(batch_embeddings_u_neg), device=self.device)
         ts_diff_neg = torch.cat(ts_diff_neg)
