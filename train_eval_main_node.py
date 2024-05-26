@@ -139,6 +139,9 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', type=int, default=20, help='number of epochs')
     parser.add_argument('--batch_size', type=int, default=200, help='batch size')
     parser.add_argument('--test_batch_size', type=int, default=100, help='test_batch size')
+    parser.add_argument('--sample_num', type=int, default=5, help='sample_num')
+    parser.add_argument('--neg_sample_num', type=int, default=20, help='neg_sample_num')
+    
     
     parser.add_argument('--data_dir', type=str, default='./')
     parser.add_argument('--seed', type=int, default=1111, help='random seed')
@@ -188,8 +191,8 @@ if __name__ == '__main__':
                   random_state= rnd,
                   first_date=train_set.FIRST_DATE,
                   end_datetime=test_set.END_DATE,
-                  num_neg_samples=10, # ****
-                  num_time_samples=5,
+                  num_neg_samples=args.neg_sample_num, # ****
+                  num_time_samples=args.sample_num,
                   device=args.device,
                   all_comms=args.all_comms,
                   train_td_max=train_td_max
@@ -233,7 +236,7 @@ if __name__ == '__main__':
             
             # 단순히 log(pos)- neg 형태의 기울기 반영
             output = model(data_batch) # 모델 forward 돌리고 역전파 생성
-            losses = [-torch.sum(torch.log(output[0]) + 1e-10), torch.sum(output[1])]
+            losses = [-torch.sum(torch.log(output[0]) + 1e-10), 10 * torch.sum(output[1])]
             loss = torch.sum(torch.stack(losses))/args.batch_size
             
             loss.backward()

@@ -5,7 +5,7 @@ from torch.nn import Linear, ModuleList, Parameter
 import bisect
 
 class DyRepNode(torch.nn.Module):
-    def __init__(self, num_nodes, hidden_dim, random_state, first_date, end_datetime, num_neg_samples= 5, num_time_samples = 10,
+    def __init__(self, num_nodes, hidden_dim, random_state, first_date, end_datetime, num_neg_samples= 20, num_time_samples = 5,
                  device='cpu', all_comms=False, train_td_max=None):
         super(DyRepNode, self).__init__()
 
