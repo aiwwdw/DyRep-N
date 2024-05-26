@@ -136,7 +136,7 @@ if __name__ == '__main__':
     
     
     parser = argparse.ArgumentParser(description='DyRep Model Training Parameters')
-    parser.add_argument('--epochs', type=int, default=2, help='number of epochs')
+    parser.add_argument('--epochs', type=int, default=20, help='number of epochs')
     parser.add_argument('--batch_size', type=int, default=200, help='batch size')
     parser.add_argument('--test_batch_size', type=int, default=100, help='test_batch size')
     

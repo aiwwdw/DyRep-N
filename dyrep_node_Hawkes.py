@@ -187,14 +187,18 @@ class DyRepNode(torch.nn.Module):
                     
                     all_td_c =  torch.tensor(list(np.cumsum(sampled_time_scale))).to(self.device)
 
-                    all_u_neg_sample = self.random_state.choice(batch_nodes, size=self.num_neg_samples*self.num_time_samples,
-                                        replace=len(batch_nodes) < self.num_neg_samples*self.num_time_samples)
+
+                    all_u_neg_sample = self.random_state.choice(batch_nodes, size=self.num_neg_samples,
+                                        replace=len(batch_nodes) < self.num_neg_samples)
                     embeddings_u_neg = z_new[all_u_neg_sample]
 
+
+                    # print(embeddings_u_neg.shape, all_td_c.shape)
                     surv_neg =  self.compute_hawkes_lambda(embeddings_u_neg, all_td_c)
+
                     surv_allsamples = surv_neg.view(-1,self.num_neg_samples).mean(dim=-1)
+                    # print(surv_allsamples.size())
                     lambda_t_allsamples = self.compute_hawkes_lambda(embeddings_u, all_td_c)
-                    
 
                     f_samples = lambda_t_allsamples*torch.exp(-surv_allsamples)
                     expectation = torch.cumsum(sampled_time_scale, dim=0)*f_samples
