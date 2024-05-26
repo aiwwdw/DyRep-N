@@ -101,9 +101,9 @@ class DyRepNode(torch.nn.Module):
         # *** time의 shape 알고 수정 필요
         # *** time을 normalize할 바에, fixed encoding을 하는 방식을 어떨까?
         # [sw] normalize 하는 이유는 모르겠고, 24,12진법을 10진법으로 변환은 의미가 있을듯
-        time_mean = torch.from_numpy(np.array([0, 0, 0, 0])).float().to(self.device).view(1, 4)
-        time_sd = torch.from_numpy(np.array([50, 7, 15, 15])).float().to(self.device).view(1, 4)
-        time_delta = (time_delta - time_mean) / time_sd
+        # time_mean = torch.from_numpy(np.array([0, 0, 0, 0])).float().to(self.device).view(1, 4)
+        # time_sd = torch.from_numpy(np.array([50, 7, 15, 15])).float().to(self.device).view(1, 4)
+        # time_delta = (time_delta - time_mean) / time_sd
 
         # 기본 세팅
         lambda_list,  lambda_u_neg = [], []
@@ -171,14 +171,14 @@ class DyRepNode(torch.nn.Module):
                 # 모든 노드에 대한 hawkes lambda 계산하기
                 time_diff_pred = time_cur_it - time_bar_it
                 lambda_all_pred = self.compute_hawkes_lambda(z_prev, time_diff_pred)
+                
                 # survival probability 계산 후, 저장
                 if not self.training:
+                    print(lambda_all_pred.size())
                     lambda_all_list[it, :] = lambda_all_pred
                     assert torch.sum(torch.isnan(lambda_all_list[it])) == 0, (it, torch.sum(torch.isnan(lambda_all_list[it])))
                     s_u = self.compute_cond_density(u_event, time_bar_it)
                     surv_all_list[it,:] = s_u
-
-
 
             
                 # *** 어떤 type의 시간을 사용할것인가?
@@ -267,6 +267,7 @@ class DyRepNode(torch.nn.Module):
         lambda_u_neg = self.compute_hawkes_lambda(batch_embeddings_u_neg, ts_diff_neg)
 
         # 리턴값: 이벤트 노드의 람다, neg 노드의 평균, A_pred, surv, 예상시간
+
         return lambda_list, lambda_u_neg / self.num_neg_samples,lambda_all_list, surv_all_list, expected_time
         
     def compute_hawkes_lambda(self, z_u, td):
@@ -296,8 +297,11 @@ class DyRepNode(torch.nn.Module):
         g_psi = torch.clamp(g/(psi + 1e-7), -75, 75) # avoid overflow
         
         # Hawkes 프로세스 강도 (Lambda) 계산, 뒷부분이 hawkes를 의미
-        Lambda = psi * torch.log(1 + torch.exp(g_psi))
-        #Lambda = psi * torch.log(1 + torch.exp(g_psi)) + alpha*torch.exp(-w_t*(td/self.train_td_max))
+        # Lambda = psi * torch.log(1 + torch.exp(g_psi))
+        print(td.size(), g_psi.size())
+        time_effect = alpha*torch.exp(-w_t*(td/self.train_td_max))
+        Lambda = psi * torch.log(1 + torch.exp(g_psi)) + time_effect
+        
         return Lambda
  
     def update_node_embedding_without_attention(self, prev_embedding, u_event, u_neighborhood, time_delta_it):
