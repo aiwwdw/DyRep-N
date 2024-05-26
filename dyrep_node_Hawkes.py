@@ -144,13 +144,13 @@ class DyRepNode(torch.nn.Module):
             batch_embeddings_u.append(z_prev[int(u_event)])
             batch_embeddings_u_neg.append(z_prev[batch_u_neg])
 
-            ## 5. 모든 node별 conditional density
+            ## 모든 node별 conditional density
             with torch.no_grad():
                 # 모든 노드에 대한 hawkes lambda 계산하기
                 time_diff_pred = time_cur_it - time_bar_it
                 lambda_all_pred = self.compute_hawkes_lambda(z_prev, time_diff_pred)
                 
-                # survival probability 계산 후, 저장
+                # test - survival probability 계산 후, 저장
                 if not self.training:
                     print(lambda_all_pred.size())
                     lambda_all_list[it, :] = lambda_all_pred
@@ -158,28 +158,24 @@ class DyRepNode(torch.nn.Module):
                     s_u = self.compute_cond_density(u_event, time_bar_it)
                     surv_all_list[it,:] = s_u
 
-            
-                # *** 어떤 type의 시간을 사용할것인가?
-                # Lambda_dict: 이벤트 일어나는 순서대로 람다 저장(최대 사이즈는 fix) -> survival probability 구할 때 이용
-                time_key = time_cur_it
-                # u,v에 연결할수는 있는 모든 노드 중, u,v를 제거해서 lambda를 계산, 
-                idx = np.delete(np.arange(self.num_nodes), [int(u_event)])
-
-                # 크기를 넘어서면 예전것부터 없앰
+                # Lambda_dict: (survival probability 구하기용) 시간 순서대로 event에 대한 람다 저장
+                # 안중요 - 크기를 넘어서면 예전것부터 없앰
                 if len(self.time_keys) >= len(self.Lambda_dict):
                     time_keys = np.array(self.time_keys)
                     time_keys[:-1] = time_keys[1:]
                     self.time_keys = list(time_keys[:-1])
                     self.Lambda_dict[:-1] = self.Lambda_dict.clone()[1:]
                     self.Lambda_dict[-1] = 0
-                #발생하지 않은 노드들의 lambda를 더해서 lambda_dict에 저장
+                # 발생하지 않은 노드들의 lambda를 더해서 lambda_dict에 저장
+                idx = np.delete(np.arange(self.num_nodes), [int(u_event)])
                 self.Lambda_dict[len(self.time_keys)] = lambda_all_pred[idx].sum().detach()
-                self.time_keys.append(time_key)
+                self.time_keys.append(time_cur_it)
 
+                ################################################################
                 self.time_bar[u_event] = time_cur_it
 
 
-                # test for time prediction
+                # test - for time prediction
                 if not self.training:
                     t_cur_date = time_cur_it
                     t_prev = time_bar_it[int(u_event)]
@@ -212,10 +208,10 @@ class DyRepNode(torch.nn.Module):
                     expectation = expectation.sum()
                     expected_time.append(expectation/self.num_time_samples)
 
-            ## 6. Update the embedding z
+            ## Update embedding
             z_prev = z_new
         
-        # training data에 대한 for문이 끝난후
+        # training 끝나면 z 반영
         self.z = z_new
 
         # time prediction
