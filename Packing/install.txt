@@ -1,0 +1,10 @@
+conda install pandas
+conda install matplotlib
+conda install sklearn
+conda install numpy
+
+- Create a csv data for NodePredict
+python clustering.py 
+
+- Create a csv data for comparison model like LSTM, MLP, etc.
+python clustering_for_NLP.py 

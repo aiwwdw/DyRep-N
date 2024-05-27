@@ -21,9 +21,6 @@ from torch import autograd
 from earthquake_data_loader import EarthquakeDataset
 
 from utils import *
-from dyrep import DyRep
-from dyrepHawkes import DyRepHawkes
-from dyrepHawkes_re import DyRepHawkesRe
 from dyrep_node_Hawkes import DyRepNode
 from tqdm import tqdm
 from collections import defaultdict

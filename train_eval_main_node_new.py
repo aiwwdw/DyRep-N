@@ -22,9 +22,6 @@ from torch import autograd
 from earthquake_data_loader import EarthquakeDataset
 
 from utils import *
-from dyrep import DyRep
-from dyrepHawkes import DyRepHawkes
-from dyrepHawkes_re import DyRepHawkesRe
 from dyrep_node_Hawkes import DyRepNode
 from dyrep_node_new import DyRepNode_new
 from tqdm import tqdm
@@ -204,7 +201,7 @@ if __name__ == '__main__':
                   train_td_max=train_td_max
                   ).to(args.device)
     
-    model.load_state_dict(torch.load('model.pth'))
+    # model.load_state_dict(torch.load('Dyrep_node_new.pth'))
     # learning parameter 설정
     params_main = [param for param in model.parameters() if param.requires_grad]
     optimizer = optim.Adam(params_main, lr=args.lr, betas=(0.5, 0.999))
